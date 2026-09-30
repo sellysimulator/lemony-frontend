@@ -18,5 +18,15 @@ export default defineConfig([
     languageOptions: {
       globals: globals.browser,
     },
+    rules: {
+      // Pages export `route` next to their component for route discovery.
+      'react-refresh/only-export-components': ['error', { allowExportNames: ['route'] }],
+    },
+  },
+  {
+    // Pages export `route` (a descriptor) for discovery, so Fast Refresh falls
+    // back to a full reload for them; that is the accepted trade.
+    files: ['src/pages/**/*.tsx'],
+    rules: { 'react-refresh/only-export-components': 'off' },
   },
 ])
