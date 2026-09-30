@@ -14,12 +14,13 @@ export default function Card(props: { title?: ReactNode; children: ReactNode; cl
   )
 }
 
-export function Stat(props: { label: string; value: ReactNode; tone?: 'good' | 'bad' | 'neutral'; hint?: string }): ReactElement {
+export function Stat(props: { label: string; value: ReactNode; tone?: 'good' | 'bad' | 'neutral'; hint?: string; sub?: ReactNode }): ReactElement {
   const tone = props.tone === 'good' ? 'text-good' : props.tone === 'bad' ? 'text-bad' : 'text-ink'
   return (
     <div className="rounded-xl bg-surface-sunken/60 px-3 py-2" title={props.hint}>
       <div className="text-xs font-semibold tracking-wide text-ink-muted uppercase">{props.label}</div>
       <div className={`text-xl font-extrabold tabular-nums ${tone}`}>{props.value}</div>
+      {props.sub ? <div className="text-xs text-ink-muted tabular-nums">{props.sub}</div> : null}
     </div>
   )
 }

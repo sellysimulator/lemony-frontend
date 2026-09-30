@@ -10,13 +10,15 @@ import {
   RECIPE_INGREDIENTS,
   WEATHER_TYPES,
   type GameConfig,
+  type IngredientConfig,
+  type PackOption,
   type IngredientName,
   type PersonType,
   type RecipeIngredient,
   type Weather,
 } from '../../../types/game'
 import { money, pct, REASON_TEXT } from '../../../utils/format'
-import { buyScores, expectedSpawn, hazard, midpoint, score, steps, survival, weatherOdds, type ScoredRange } from '../../../game/configMath'
+import { buyScores, expectedSpawn, hazard, midpoint, packPrice, score, steps, survival, weatherOdds, type ScoredRange } from '../../../game/configMath'
 import { INGREDIENT_SERIES, PERSON_SERIES, WEATHER_SERIES } from '../../charts/chartSetup'
 import { BarChart, Example, Formula, H, LineChart, List, Note, P, Table, WeatherBands, type Series } from './primitives'
 
@@ -74,6 +76,20 @@ function samplePlan(cfg: GameConfig) {
     price: round2(roundTo(midpoint(mm.price), 0.05)),
     recipe: { ice: Math.round(midpoint(mm.ice)), sugar: Math.round(midpoint(mm.sugar)), lemons: Math.round(midpoint(mm.lemons)) },
   }
+}
+
+function smallestPack(cfg: IngredientConfig): PackOption {
+  return cfg.packs.reduce((a, b) => (b.size < a.size ? b : a))
+}
+
+/** A cup made entirely from each ingredient's biggest pack. */
+function bulkCostPerCup(cfg: GameConfig, recipe: Record<RecipeIngredient, number>): number {
+  const unit = (n: IngredientName) => {
+    const ing = cfg.ingredients[n]
+    const big = ing.packs.reduce((a, b) => (b.size > a.size ? b : a))
+    return packPrice(ing, big) / big.size
+  }
+  return RECIPE_INGREDIENTS.reduce((sum, n) => sum + recipe[n] * unit(n), 0) + unit('cups')
 }
 
 function costPerCup(cfg: GameConfig, recipe: Record<RecipeIngredient, number>): number {
@@ -148,7 +164,7 @@ const startingCash: Doc = {
   body: ({ config }) => {
     const plan = samplePlan(config)
     const cup = costPerCup(config, plan.recipe)
-    const basket = INGREDIENTS.reduce((sum, n) => sum + Math.min(...config.ingredients[n].pack_sizes) * config.ingredients[n].unit_cost, 0)
+    const basket = INGREDIENTS.reduce((sum, n) => sum + packPrice(config.ingredients[n], smallestPack(config.ingredients[n])), 0)
     return (
       <>
         <P>The money you have on the morning of day 1. There are no loans: you can never spend more than you have on ingredients.</P>
@@ -165,9 +181,9 @@ const startingCash: Doc = {
           The cheapest way to have some of everything is the smallest pack of each ingredient: <strong>{money(basket)}</strong>. Your{' '}
           {money(config.starting_cash)} covers that <strong>{basket > 0 ? (config.starting_cash / basket).toFixed(1) : '∞'}×</strong>.
           <br />
-          A mid-range recipe ({plan.recipe.ice} ice, {plan.recipe.sugar} sugar, {plan.recipe.lemons} lemons, plus a cup) costs{' '}
+          At list prices, a mid-range recipe ({plan.recipe.ice} ice, {plan.recipe.sugar} sugar, {plan.recipe.lemons} lemons, plus a cup) costs{' '}
           <strong>{money(cup)}</strong> per cup, so your starting cash is worth about <strong>{cup > 0 ? Math.floor(config.starting_cash / cup) : '∞'} cups</strong>{' '}
-          of ingredients.
+          of ingredients. Pack discounts stretch that further.
         </Example>
       </>
     )
@@ -658,7 +674,7 @@ const ingredientsSection: Doc = {
     const xs = Array.from({ length: days + 1 }, (_, i) => i)
     return (
       <>
-        <P>Every cup uses your recipe’s ice, sugar and lemons, plus one cup. You buy ingredients each morning in whole packs.</P>
+        <P>Every cup uses your recipe’s ice, sugar and lemons, plus one cup. You buy ingredients each morning in whole packs, and bigger packs can carry a discount.</P>
         <H>Batches and spoilage</H>
         <P>
           Each purchase is tracked as its own batch, so the game knows how old every unit is. Sales always use the oldest batch first. At the end of every day
@@ -692,15 +708,21 @@ const unitCost: Doc = {
     return (
       <>
         <P>
-          The price of one unit of {ingredient}: {money(config.ingredients[ingredient].unit_cost)}. A unit is one ice cube, one spoon of sugar, one lemon or one
-          cup. Packs cost pack size × unit cost, with no bulk discount.
+          The list price of one unit of {ingredient}: {money(config.ingredients[ingredient].unit_cost)}. A unit is one ice cube, one spoon of sugar, one lemon or
+          one cup. Each pack size can knock a discount off this price (see “Packs on sale”).
         </P>
-        <Formula>cost per cup = ice × ice cost + sugar × sugar cost + lemons × lemon cost + 1 cup</Formula>
-        <Example title="Cost of a mid-range cup">
+        <Formula>{`pack price   = size × unit cost × (1 − pack discount)
+cost per cup = ice + sugar + lemons + 1 cup, each at the unit price you paid`}</Formula>
+        <P>
+          In the game, the cost per cup comes from the stock you actually use, oldest first, at the price you paid for it. Cheap bulk stock lowers it, and
+          so does using up older stock bought at a discount.
+        </P>
+        <Example title="Cost of a mid-range cup at list price">
           <Table head={['Ingredient', 'Units', 'Unit cost', 'Subtotal']} rows={lines.map(([name, qty, c]) => [name, qty, money(c), money(qty * c)])} />
           <p className="mt-2">
             Total: <strong>{money(costPerCup(config, plan.recipe))}</strong> per cup. Selling at {money(plan.price)} leaves{' '}
-            <strong>{money(plan.price - costPerCup(config, plan.recipe))}</strong> per cup sold.
+            <strong>{money(plan.price - costPerCup(config, plan.recipe))}</strong> per cup sold. Bought entirely from the biggest packs, the cup would cost{' '}
+            <strong>{money(bulkCostPerCup(config, plan.recipe))}</strong>.
           </p>
         </Example>
       </>
@@ -708,18 +730,63 @@ const unitCost: Doc = {
   },
 }
 
-const packSizes: Doc = {
-  title: ({ ingredient }) => `Pack sizes${ingredient ? ` (${ingredient})` : ''}`,
+const packs: Doc = {
+  title: ({ ingredient }) => `Packs on sale${ingredient ? ` (${ingredient})` : ''}`,
   body: ({ config, ingredient = 'lemons' }) => {
     const cfg = config.ingredients[ingredient]
+    const small = smallestPack(cfg)
+    const big = cfg.packs.reduce((a, b) => (b.size > a.size ? b : a))
+    const smallUnit = packPrice(cfg, small) / small.size
+    const breakEven = smallUnit > 0 ? Math.ceil(packPrice(cfg, big) / smallUnit) : 0
     return (
       <>
-        <P>The pack sizes you can buy each morning, separated by commas. You always buy whole packs, and you can buy any number of each size.</P>
-        <List items={['Between 1 and 8 sizes.', 'Each size must be a whole number from 1 to 10,000, with no repeats.', 'Changes apply when you leave the field.']} />
-        <P>Packs have no bulk discount, so the choice is about granularity: small packs let you buy close to what you need; big packs over-buy and risk spoilage.</P>
+        <P>
+          The packs you can buy each morning. Each pack has a size and its own discount, so bigger packs can be cheaper per unit. You always buy whole
+          packs, and any number of each.
+        </P>
+        <Formula>pack price = size × unit cost × (1 − discount), rounded to the cent</Formula>
+        <List
+          items={[
+            'From 1 to 8 packs. Sizes are whole numbers from 1 to 10,000, with no repeats.',
+            'Discounts go from 0% to 90%. Only pack discounts exist; there is no discount for buying many packs.',
+            'A warning appears when a bigger pack costs more per unit than a smaller one. It is allowed, but players will rarely buy that pack.',
+          ]}
+        />
+        <BarChart
+          title={`${cap(ingredient)}: price per unit by pack`}
+          labels={cfg.packs.map((p) => `${p.size}`)}
+          series={[{ label: 'Price per unit', data: cfg.packs.map((p) => packPrice(cfg, p) / p.size), color: INGREDIENT_SERIES[ingredient] }]}
+          xLabel="Pack size (units)"
+          yLabel="Price per unit"
+          fmt="money"
+        />
         <Example title={`Current ${ingredient} packs`}>
-          <Table head={['Pack', 'Price', 'Share of starting cash']} rows={cfg.pack_sizes.map((s) => [`${s} units`, money(s * cfg.unit_cost), pct(config.starting_cash ? (s * cfg.unit_cost) / config.starting_cash : 0)])} />
+          <Table
+            head={['Pack', 'Discount', 'Price', 'Per unit', 'Share of starting cash']}
+            rows={cfg.packs.map((p) => [
+              `${p.size} units`,
+              pct(p.discount),
+              money(packPrice(cfg, p)),
+              money(packPrice(cfg, p) / p.size),
+              pct(config.starting_cash ? packPrice(cfg, p) / config.starting_cash : 0),
+            ])}
+          />
         </Example>
+        {big.size > small.size && !cfg.never_perishes ? (
+          <>
+            <H>The catch: spoilage</H>
+            <P>
+              A discount only pays off if you use the stock before it spoils. The pack of {big.size} costs {money(packPrice(cfg, big))}. Buying the same
+              units in packs of {small.size} would cost {money(smallUnit)} each, so the big pack is only the better deal if you use at least{' '}
+              <strong>{breakEven}</strong> of its {big.size} units. The rest can spoil and you still come out ahead.
+            </P>
+          </>
+        ) : null}
+        <H>Margin per cup</H>
+        <P>
+          Every purchase is kept as its own batch with the price you paid. The planning screen’s cost per cup is the average cost of the cups you can make
+          today, oldest stock first. The day report shows what the cups you sold actually cost.
+        </P>
       </>
     )
   },
@@ -808,7 +875,7 @@ export const DOCS = {
   preferred_lemons: preferredIngredient('lemons'),
   ingredients_section: ingredientsSection,
   unit_cost: unitCost,
-  pack_sizes: packSizes,
+  packs,
   never_perishes: neverPerishes,
   fresh_days: spoilageDoc('fresh_days'),
   max_days: spoilageDoc('max_days'),

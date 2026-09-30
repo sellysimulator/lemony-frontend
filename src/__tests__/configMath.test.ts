@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest'
-import { hazard, kernel, largestDiff, survival, weatherOdds } from '../game/configMath'
+import { hazard, kernel, largestDiff, packPrice, survival, weatherOdds } from '../game/configMath'
 import type { GameConfig, IngredientConfig } from '../types/game'
 
-const lemons: IngredientConfig = { unit_cost: 0.15, pack_sizes: [50], fresh_days: 3, max_days: 7, never_perishes: false }
+const lemons: IngredientConfig = { unit_cost: 0.15, packs: [{ size: 50, discount: 0 }], fresh_days: 3, max_days: 7, never_perishes: false }
 
 describe('configMath', () => {
   it('kernel is 1 at the preference and 0 at the reach', () => {
@@ -16,6 +16,11 @@ describe('configMath', () => {
   it('hazard ramps linearly between fresh and max days', () => {
     expect([1, 3, 4, 5, 7, 9].map((d) => hazard(lemons, d))).toEqual([0, 0, 0.25, 0.5, 1, 1])
     expect(hazard({ ...lemons, never_perishes: true }, 99)).toBe(0)
+  })
+
+  it('pack price applies the pack discount and rounds to the cent', () => {
+    expect(packPrice(lemons, { size: 500, discount: 0.2 })).toBe(60)
+    expect(packPrice({ ...lemons, unit_cost: 0.07 }, { size: 3, discount: 0.1 })).toBe(0.19)
   })
 
   it('survival compounds nightly hazards', () => {

@@ -1,8 +1,12 @@
 import { Box, Candy, Citrus, Cloud, CloudRain, CupSoda, Snowflake, Sun, User, type LucideIcon } from 'lucide-react'
+import { roundCents } from './money'
 import type { IngredientName, PersonType, Weather } from '../types/game'
 
-export const money = (n: number): string =>
-  `${n < 0 ? '−' : ''}$${Math.abs(n).toFixed(2)}`
+/** Rounded with the shared money rule first, so a displayed amount never disagrees with the server's. */
+export const money = (n: number): string => {
+  const cents = roundCents(n)
+  return `${cents < 0 ? '−' : ''}$${Math.abs(cents).toFixed(2)}`
+}
 
 export const pct = (n: number): string => `${Math.round(n * 100)}%`
 

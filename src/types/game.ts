@@ -28,9 +28,15 @@ export interface PersonPreferences {
   preferred_hour: number
 }
 
+/** One pack on sale: `size` units at `unit_cost` each, less `discount` (0–0.9). */
+export interface PackOption {
+  size: number
+  discount: number
+}
+
 export interface IngredientConfig {
   unit_cost: number
-  pack_sizes: number[]
+  packs: PackOption[]
   fresh_days: number
   max_days: number
   never_perishes: boolean
@@ -49,6 +55,8 @@ export interface GameConfig {
 export interface BatchView {
   qty: number
   age: number
+  /** Price paid per unit (after the pack discount). */
+  unit_cost: number
   risk_tonight: number
 }
 
@@ -86,6 +94,7 @@ export interface DayRecord {
   temperature: number
   price: number
   recipe: Record<RecipeIngredient, number>
+  /** What the cups sold actually cost (discounts included); list price if none were sold. */
   cost_per_cup: number
   purchased: Record<IngredientName, number>
   spend: number

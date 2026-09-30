@@ -3,7 +3,8 @@
  * ingredients.py, weather.py), used only to illustrate the config help. The
  * server still runs the real simulation.
  */
-import { WEATHER_TYPES, type GameConfig, type IngredientConfig, type PersonPreferences, type Range, type Weather } from '../types/game'
+import { roundCents } from '../utils/money'
+import { WEATHER_TYPES, type GameConfig, type IngredientConfig, type PackOption, type PersonPreferences, type Range, type Weather } from '../types/game'
 
 /** 1 at the preference, falling linearly to 0 at `denominator` away; clamped to [0, 1]. */
 export function kernel(current: number, preferred: number, denominator: number): number {
@@ -96,4 +97,9 @@ export function steps(r: Range, step = 1, cap = 60): number[] {
   const out: number[] = []
   for (let v = r.min; v <= r.max + 1e-9 && out.length < cap; v += step) out.push(Math.round(v * 100) / 100)
   return out
+}
+
+/** What one pack costs, rounded to the cent (mirrors IngredientConfig.pack_price). */
+export function packPrice(cfg: IngredientConfig, pack: PackOption): number {
+  return roundCents(pack.size * cfg.unit_cost * (1 - pack.discount))
 }

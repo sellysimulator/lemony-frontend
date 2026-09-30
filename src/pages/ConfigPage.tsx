@@ -5,6 +5,7 @@ import Layout from '../components/shared/Layout'
 import LoadingSpinner from '../components/shared/LoadingSpinner'
 import { CheckboxField, NumberField, RangeField, Section, SubCard } from '../components/config/fields'
 import InfoButton from '../components/config/docs/InfoButton'
+import PacksEditor from '../components/config/PacksEditor'
 import { DocsConfigContext } from '../components/config/docs/docsContext'
 import { IngredientIcon, PersonIcon, WeatherIcon } from '../components/shared/icons'
 import { hazard } from '../game/configMath'
@@ -86,33 +87,6 @@ function SelectField(props: { label: string; value: string; options: readonly st
           </option>
         ))}
       </select>
-    </div>
-  )
-}
-
-function PackSizesField(props: { sizes: number[]; info?: ReactNode; onChange(sizes: number[]): void }): ReactElement {
-  const id = useId()
-  return (
-    <div>
-      <div className="flex min-h-7 items-center gap-1">
-        <label htmlFor={id} className="text-sm font-semibold">
-          Pack sizes
-        </label>
-        {props.info}
-      </div>
-      <input
-        id={id}
-        defaultValue={props.sizes.join(', ')}
-        key={props.sizes.join(',')}
-        onBlur={(e) => {
-          const sizes = e.target.value
-            .split(/[,\s]+/)
-            .map(Number)
-            .filter((n) => Number.isInteger(n) && n > 0)
-          if (sizes.length) props.onChange(sizes)
-        }}
-        className="mt-1 min-h-11 w-full rounded-lg border border-stone-300 bg-white px-3 py-2 tabular-nums focus:border-brand-strong focus:ring-2 focus:ring-brand/60 focus:outline-none"
-      />
     </div>
   )
 }
@@ -452,11 +426,7 @@ function ConfigPage(): ReactElement {
                             info={<InfoButton doc="unit_cost" ingredient={name} />}
                             onChange={(v) => setIngredient(name, 'unit_cost', v)}
                           />
-                          <PackSizesField
-                            sizes={cfg.pack_sizes}
-                            info={<InfoButton doc="pack_sizes" ingredient={name} />}
-                            onChange={(sizes) => setIngredient(name, 'pack_sizes', sizes)}
-                          />
+                          <PacksEditor cfg={cfg} info={<InfoButton doc="packs" ingredient={name} />} onChange={(packs) => setIngredient(name, 'packs', packs)} />
                         </FieldGroup>
                         <FieldGroup title="Spoilage">
                           <CheckboxField

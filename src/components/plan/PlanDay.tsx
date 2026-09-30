@@ -11,9 +11,10 @@ import {
 } from '../../types/game'
 import { Sun, TriangleAlert } from 'lucide-react'
 import { money, pct } from '../../utils/format'
+import { roundCents } from '../../utils/money'
 import { IngredientIcon, WeatherIcon } from '../shared/icons'
-
-type Purchases = Record<IngredientName, Record<number, number>>
+import { packPrice } from '../../game/configMath'
+import { listCostPerCup, projectedCostPerCup, purchaseCost, type Purchases } from '../../game/costing'
 
 const emptyPurchases = (): Purchases => ({ ice: {}, sugar: {}, lemons: {}, cups: {} })
 
@@ -49,16 +50,17 @@ export default function PlanDay(props: { state: GameState }): ReactElement {
       for (const [size, count] of Object.entries(purchases[name])) u[name] += Number(size) * count
     return u
   }, [purchases])
-  const cost = INGREDIENTS.reduce((s, n) => s + units[n] * cfg.ingredients[n].unit_cost, 0)
+  const cost = purchaseCost(cfg, purchases)
   const cashLeft = state.cash - cost
-  const costPerCup =
-    RECIPE_INGREDIENTS.reduce((s, n) => s + recipe[n] * cfg.ingredients[n].unit_cost, 0) + cfg.ingredients.cups.unit_cost
   const cupsPossible = Math.min(
     state.inventory.cups.total + units.cups,
     ...RECIPE_INGREDIENTS.filter((n) => recipe[n] > 0).map((n) =>
       Math.floor((state.inventory[n].total + units[n]) / recipe[n]),
     ),
   )
+  // What the cups you can make today will cost, from the stock and packs actually bought.
+  const costPerCup = projectedCostPerCup(cfg, state.inventory, purchases, recipe, Number.isFinite(cupsPossible) ? cupsPossible : 0)
+  const listCost = listCostPerCup(cfg, recipe)
   const priceRange = cfg.min_max_values.price
   const priceValid = price >= priceRange.min && price <= priceRange.max
 
@@ -108,14 +110,20 @@ export default function PlanDay(props: { state: GameState }): ReactElement {
                     <span className="ml-auto text-sm tabular-nums">+{units[name]}</span>
                   </div>
                   <div className="mt-2 space-y-1">
-                    {ing.pack_sizes.map((size) => {
+                    {ing.packs.map((pack) => {
+                      const size = pack.size
                       const count = purchases[name][size] ?? 0
-                      const packCost = size * ing.unit_cost
+                      const packCost = packPrice(ing, pack)
                       return (
                         <div key={size} className="flex items-center gap-2 text-sm">
-                          <span className="w-24">
+                          <span>
                             Pack of {size} <span className="text-ink-subtle">({money(packCost)})</span>
                           </span>
+                          {pack.discount > 0 ? (
+                            <span className="rounded-full bg-good/10 px-1.5 py-0.5 text-xs font-bold text-good" title={`${money(packCost / size)} per unit`}>
+                              −{pct(pack.discount)}
+                            </span>
+                          ) : null}
                           <button type="button" aria-label={`Remove a pack of ${size} ${name}`} disabled={count === 0} onClick={() => changePack(name, size, -1)} className="ml-auto h-7 w-7 rounded-md border border-border disabled:opacity-30">
                             −
                           </button>
@@ -170,7 +178,7 @@ export default function PlanDay(props: { state: GameState }): ReactElement {
                 onChange={(e) => {
                   setPriceDraft(e.target.value)
                   const n = Number(e.target.value)
-                  if (e.target.value.trim() !== '' && Number.isFinite(n)) setPrice(Math.round(n * 100) / 100)
+                  if (e.target.value.trim() !== '' && Number.isFinite(n)) setPrice(roundCents(n))
                 }}
                 onBlur={() => setPriceDraft(null)}
                 className="mt-1 w-full rounded-lg border border-border px-2 py-1.5 tabular-nums"
@@ -181,7 +189,12 @@ export default function PlanDay(props: { state: GameState }): ReactElement {
                 </span>
               ) : null}
             </label>
-            <Stat label="Cost per cup" value={money(costPerCup)} />
+            <Stat
+              label="Cost per cup"
+              value={money(costPerCup)}
+              sub={Math.abs(listCost - costPerCup) >= 0.005 ? `${money(listCost)} at list price` : undefined}
+              hint="Average cost of the cups you can make today: oldest stock first at the price you paid, then today's packs with their discounts."
+            />
             <Stat label="Margin per cup" value={`${money(price - costPerCup)} (${costPerCup > 0 ? pct((price - costPerCup) / costPerCup) : '—'})`} tone={price >= costPerCup ? 'good' : 'bad'} />
           </div>
         </Card>
