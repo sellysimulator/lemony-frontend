@@ -14,7 +14,8 @@ function CreditsPage(): ReactElement {
             <a href={c.source} target="_blank" rel="noreferrer" className="font-semibold underline">
               {c.title}
             </a>{' '}
-            by {c.author} — <a href="http://creativecommons.org/licenses/by/4.0/" className="underline" target="_blank" rel="noreferrer">CC-BY-4.0</a>
+            by {c.author}
+            {c.changes ? ` (${c.changes})` : ''} — <a href="http://creativecommons.org/licenses/by/4.0/" className="underline" target="_blank" rel="noreferrer">CC-BY-4.0</a>
           </li>
         ))}
       </ul>

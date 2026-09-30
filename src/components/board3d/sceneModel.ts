@@ -111,3 +111,113 @@ export function atmosphere(weather: Weather, fraction: number): Atmosphere {
     dusk,
   }
 }
+
+/** Deterministic PRNG (mulberry32) so render stays pure. */
+export function seeded(seed: number): () => number {
+  let a = seed >>> 0
+  return () => {
+    a = (a + 0x6d2b79f5) >>> 0
+    let t = a
+    t = Math.imul(t ^ (t >>> 15), t | 1)
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61)
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296
+  }
+}
+
+/** Asphalt width and the sidewalk strip on each side of it (metres). */
+export const ROAD_WIDTH = 3.2
+export const SIDEWALK_WIDTH = 0.8
+export const ROAD_CENTER_Z = STREET_Z + 0.7
+/** z range covered by road + sidewalks; scenery must stay out of it. */
+export const ROAD_BAND: [number, number] = [
+  ROAD_CENTER_Z - ROAD_WIDTH / 2 - SIDEWALK_WIDTH,
+  ROAD_CENTER_Z + ROAD_WIDTH / 2 + SIDEWALK_WIDTH,
+]
+/** Stand, its queue and the paved pad in front: kept clear of scenery. */
+export const STAND_ZONE = { x: 4, zMin: -2 }
+
+/**
+ * Footprint radius at scale 1, measured from the GLBs at their TARGET_HEIGHT.
+ * A grass patch is a square of blades, so this is its half-diagonal.
+ */
+export const GRASS_RADIUS = 3.4
+export const TREE_RADIUS = 2
+
+export interface Prop {
+  x: number
+  z: number
+  rotY: number
+  scale: number
+}
+
+const prop = (x: number, z: number, rotY: number, scale: number): Prop => ({ x, z, rotY, scale })
+
+/** Behind the stand, around the sides, and a few across the road. */
+export const TREES: Prop[] = [
+  prop(-7, -5, 0.4, 1),
+  prop(6.5, -6, 2.1, 1.15),
+  prop(-12, -9, 1.3, 1.25),
+  prop(12, -4, 4.0, 0.9),
+  prop(-3, -11, 5.2, 1.1),
+  prop(3.5, -14, 0.9, 1.3),
+  prop(17, -10, 3.3, 1.2),
+  prop(-18, -4, 2.6, 1),
+  prop(-10, 13, 1.7, 1.1),
+  prop(11, 14, 4.6, 1),
+  prop(-20, 12.5, 0.2, 1.2),
+  prop(20, 13, 3.8, 1.15),
+]
+
+export const GRASS: Prop[] = [
+  prop(-8, -1.5, 0, 1),
+  prop(8.5, -1.5, 1.1, 0.9),
+  prop(0, -6, 2.3, 1.1),
+  prop(-13, -2, 3.4, 1),
+  prop(13, 0.5, 4.2, 1),
+  prop(-9, -11, 5.1, 1.2),
+  prop(9, -10, 0.7, 1.1),
+  prop(-18, 0.8, 1.9, 0.9),
+  prop(-6, 13, 2.8, 1),
+  prop(6, 13.5, 3.9, 1.1),
+  prop(16, 12.5, 5.6, 0.9),
+]
+
+export interface CloudSpec {
+  x: number
+  y: number
+  z: number
+  scale: number
+  speed: number
+}
+
+export interface CloudCover {
+  tint: string
+  clouds: CloudSpec[]
+}
+
+/**
+ * Clouds drift along x and wrap within ±CLOUD_SPAN. The default camera looks
+ * ~21° down with only ~1° of sky above the horizon, so they sit far back and
+ * low: they rise over the horizon at rest and fill the sky as you orbit down.
+ */
+export const CLOUD_SPAN = 60
+
+const COVER: Record<Weather, { count: number; tint: string }> = {
+  sunny: { count: 5, tint: '#ffffff' },
+  cloudy: { count: 11, tint: '#e2e6ec' },
+  rainy: { count: 13, tint: '#8f98a3' },
+  snowy: { count: 10, tint: '#eef2f7' },
+}
+
+export function cloudCover(weather: Weather): CloudCover {
+  const { count, tint } = COVER[weather]
+  const rand = seeded(count * 31)
+  const clouds = Array.from({ length: count }, () => ({
+    x: (rand() * 2 - 1) * CLOUD_SPAN,
+    y: 5 + rand() * 7,
+    z: -50 - rand() * 35,
+    scale: 1.5 + rand() * 1.5,
+    speed: 0.25 + rand() * 0.4,
+  }))
+  return { tint, clouds }
+}

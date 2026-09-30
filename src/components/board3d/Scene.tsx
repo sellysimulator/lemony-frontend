@@ -1,4 +1,4 @@
-import { Suspense, useMemo, useRef, type ReactElement, type ReactNode } from 'react'
+import { Suspense, useEffect, useMemo, useRef, type ReactElement, type ReactNode } from 'react'
 import { Canvas, useFrame } from '@react-three/fiber'
 import { Html, OrbitControls, useGLTF, useProgress } from '@react-three/drei'
 import * as THREE from 'three'
@@ -8,8 +8,23 @@ import type { BoardProps } from '../day/types'
 import type { PersonType, Weather } from '../../types/game'
 import { CircleCheck, CircleX, Citrus, TriangleAlert } from 'lucide-react'
 import { REASON_TEXT } from '../../utils/format'
-import { cloneModel, MODEL_URL, preloadModels, useModel } from './models'
-import { actorPlacement, atmosphere, STREET_HALF, STREET_Z } from './sceneModel'
+import { cloneModel, MODEL_URL, preloadModels, TARGET_HEIGHT, useModel } from './models'
+import {
+  actorPlacement,
+  atmosphere,
+  CLOUD_SPAN,
+  cloudCover,
+  GRASS,
+  ROAD_CENTER_Z,
+  ROAD_WIDTH,
+  seeded,
+  SIDEWALK_WIDTH,
+  STREET_HALF,
+  TREES,
+  type CloudSpec,
+  type Prop,
+} from './sceneModel'
+import { createRoadTexture, ROAD_TILE_LENGTH } from './roadTexture'
 
 // Start fetching every model as soon as the 3D chunk loads, so a customer
 // type's first appearance does not wait on the network.
@@ -24,7 +39,7 @@ function Stand(props: { price: number }): ReactElement {
   return (
     <group>
       <primitive object={obj} />
-      <Html position={[0, 3.1, 0]} center distanceFactor={12} zIndexRange={[5, 0]}>
+      <Html position={[0, TARGET_HEIGHT.stand + 0.5, 0]} center distanceFactor={12} zIndexRange={[5, 0]}>
         <div className="rounded-md border-2 border-yellow-600 bg-yellow-200 px-2 py-0.5 text-sm font-extrabold whitespace-nowrap text-yellow-900 shadow">
           <span className="flex items-center gap-1">
             <Citrus aria-hidden className="size-4" strokeWidth={2.5} /> ${props.price.toFixed(2)}
@@ -99,16 +114,55 @@ function Crowd(props: { events: BoardProps['events'] }): ReactElement {
   )
 }
 
-/** Deterministic PRNG (mulberry32) so render stays pure. */
-function seeded(seed: number): () => number {
-  let a = seed >>> 0
-  return () => {
-    a = (a + 0x6d2b79f5) >>> 0
-    let t = a
-    t = Math.imul(t ^ (t >>> 15), t | 1)
-    t ^= t + Math.imul(t ^ (t >>> 7), t | 61)
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296
-  }
+function Props(props: { model: 'tree' | 'grass'; spots: Prop[] }): ReactElement {
+  const model = useModel(props.model)
+  const copies = useMemo(() => props.spots.map(() => cloneModel(model)), [model, props.spots])
+  return (
+    <>
+      {props.spots.map((p, i) => (
+        <primitive key={i} object={copies[i]} position={[p.x, 0, p.z]} rotation={[0, p.rotY, 0]} scale={p.scale} />
+      ))}
+    </>
+  )
+}
+
+function Cloud(props: { spec: CloudSpec; model: THREE.Object3D }): ReactElement {
+  const ref = useRef<THREE.Group>(null)
+  const { spec } = props
+  useFrame((_, dt) => {
+    const g = ref.current
+    if (!g) return
+    g.position.x += spec.speed * dt
+    if (g.position.x > CLOUD_SPAN) g.position.x -= CLOUD_SPAN * 2
+  })
+  return (
+    <group ref={ref} position={[spec.x, spec.y, spec.z]} scale={spec.scale}>
+      <primitive object={props.model} />
+    </group>
+  )
+}
+
+/** More and greyer clouds as the weather turns; they sit past the fog so stay crisp. */
+function Clouds(props: { weather: Weather }): ReactElement {
+  const cloud = useModel('cloud')
+  const cover = useMemo(() => cloudCover(props.weather), [props.weather])
+  const copies = useMemo(() => {
+    const material = new THREE.MeshStandardMaterial({ color: cover.tint, roughness: 1, fog: false })
+    return cover.clouds.map(() => {
+      const c = cloneModel(cloud)
+      c.traverse((o) => {
+        if ((o as THREE.Mesh).isMesh) (o as THREE.Mesh).material = material
+      })
+      return c
+    })
+  }, [cloud, cover])
+  return (
+    <>
+      {cover.clouds.map((spec, i) => (
+        <Cloud key={i} spec={spec} model={copies[i]} />
+      ))}
+    </>
+  )
 }
 
 function Precipitation(props: { weather: Weather }): ReactElement | null {
@@ -160,19 +214,27 @@ function Lighting(props: { weather: Weather }): ReactElement {
   )
 }
 
+const ROAD_LENGTH = STREET_HALF * 2 + 20
+
 function Ground(): ReactElement {
+  const road = useMemo(() => {
+    const t = createRoadTexture()
+    t.repeat.set(ROAD_LENGTH / ROAD_TILE_LENGTH, 1)
+    return t
+  }, [])
+  useEffect(() => () => road.dispose(), [road])
   return (
     <group>
       <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.01, 0]}>
         <planeGeometry args={[120, 120]} />
         <meshStandardMaterial color="#84cc16" />
       </mesh>
-      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0, STREET_Z + 0.7]}>
-        <planeGeometry args={[STREET_HALF * 2 + 20, 3.2]} />
-        <meshStandardMaterial color="#a8a29e" />
+      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0, ROAD_CENTER_Z]}>
+        <planeGeometry args={[ROAD_LENGTH, ROAD_WIDTH + SIDEWALK_WIDTH * 2]} />
+        <meshStandardMaterial map={road} roughness={0.95} />
       </mesh>
-      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.005, 3.8]}>
-        <planeGeometry args={[3.5, 3.4]} />
+      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.005, 1.7]}>
+        <planeGeometry args={[4.6, 5.2]} />
         <meshStandardMaterial color="#d6d3d1" />
       </mesh>
     </group>
@@ -187,11 +249,14 @@ export default function Scene(props: BoardProps): ReactElement {
       <Suspense fallback={<Loading />}>
         <AllModels>
           <Stand price={props.price} />
+          <Props model="tree" spots={TREES} />
+          <Props model="grass" spots={GRASS} />
+          <Clouds weather={props.weather} />
           <Crowd events={props.events} />
         </AllModels>
       </Suspense>
       <Precipitation weather={props.weather} />
-      <OrbitControls target={[0, 1, 3]} enablePan={false} maxPolarAngle={1.45} minDistance={6} maxDistance={32} />
+      <OrbitControls target={[0, 1, 3]} enablePan={false} maxPolarAngle={1.45} minDistance={6} maxDistance={20} />
     </Canvas>
   )
 }
