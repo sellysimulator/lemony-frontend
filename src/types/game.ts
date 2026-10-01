@@ -17,6 +17,15 @@ export interface Range {
   max: number
 }
 
+/** How far below / above a preference a customer still accepts, down to a score of 0. */
+export interface Tolerance {
+  below: number
+  above: number
+}
+
+/** Ingredients in units per cup; price as a share of the customer's budget. */
+export type Tolerances = Record<RecipeIngredient | 'price', Tolerance>
+
 export interface PersonPreferences {
   spawn_per_hour: number
   average_expense: number
@@ -26,6 +35,7 @@ export interface PersonPreferences {
   preferred_sugar: number
   preferred_lemons: number
   preferred_hour: number
+  tolerances: Tolerances
 }
 
 /** One pack on sale: `size` units at `unit_cost` each, less `discount` (0–0.9). */
@@ -46,6 +56,8 @@ export interface GameConfig {
   num_days: number
   starting_cash: number
   min_max_values: Record<RecipeIngredient | 'temperature' | 'hour' | 'price', Range>
+  /** How much the recipe moves what customers will pay (0–1). */
+  quality_swing: number
   people_preferences: Record<PersonType, PersonPreferences>
   weather_multipliers: Record<Weather, number>
   weather_temperature_ranges: Record<Weather, Range>

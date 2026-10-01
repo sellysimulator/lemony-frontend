@@ -13,12 +13,30 @@ import {
   type IngredientConfig,
   type PackOption,
   type IngredientName,
+  type PersonPreferences,
   type PersonType,
   type RecipeIngredient,
   type Weather,
 } from '../../../types/game'
 import { money, pct, REASON_TEXT } from '../../../utils/format'
-import { buyScores, expectedSpawn, hazard, midpoint, packPrice, score, steps, survival, weatherOdds, type ScoredRange } from '../../../game/configMath'
+import {
+  buyDecision,
+  buyProbability,
+  cheapFloor,
+  expectedSpawn,
+  hazard,
+  ingredientScore,
+  midpoint,
+  packPrice,
+  refusalReason,
+  score,
+  steps,
+  survival,
+  weatherOdds,
+  willingnessToPay,
+  type Recipe,
+  type ScoredRange,
+} from '../../../game/configMath'
 import { INGREDIENT_SERIES, PERSON_SERIES, WEATHER_SERIES } from '../../charts/chartSetup'
 import { BarChart, Example, Formula, H, LineChart, List, Note, P, Table, WeatherBands, type Series } from './primitives'
 
@@ -70,6 +88,43 @@ function scoreSeries(cfg: GameConfig, factor: ScoredRange, xs: number[], selecte
   }))
 }
 
+/** One line per customer type for an ingredient's 0–1 score, from each type's own tolerances. */
+function ingredientSeries(cfg: GameConfig, n: RecipeIngredient, xs: number[], selected?: PersonType): Series[] {
+  return PERSON_TYPES.map((t) => ({
+    label: t,
+    color: PERSON_SERIES[t],
+    emphasis: t === selected,
+    muted: selected !== undefined && t !== selected,
+    data: xs.map((x) => ingredientScore(cfg.people_preferences[t], n, x)),
+  }))
+}
+
+/** One line per customer type: chance to buy at each price, for a given recipe. */
+function chanceSeries(cfg: GameConfig, recipe: Recipe, xs: number[], selected?: PersonType): Series[] {
+  return PERSON_TYPES.map((t) => ({
+    label: t,
+    color: PERSON_SERIES[t],
+    emphasis: t === selected,
+    muted: selected !== undefined && t !== selected,
+    data: xs.map((x) => buyDecision(cfg, cfg.people_preferences[t], x, recipe).chance),
+  }))
+}
+
+const favouriteRecipe = (p: PersonPreferences): Recipe => ({ ice: p.preferred_ice, sugar: p.preferred_sugar, lemons: p.preferred_lemons })
+
+/** A plan in the middle of what customers like: the average favourite recipe and the average budget. */
+function typicalPlan(cfg: GameConfig) {
+  const mm = cfg.min_max_values
+  const people = PERSON_TYPES.map((t) => cfg.people_preferences[t])
+  const avg = (f: (p: PersonPreferences) => number) => people.reduce((sum, p) => sum + f(p), 0) / people.length
+  const clamp = (v: number, r: { min: number; max: number }) => Math.min(r.max, Math.max(r.min, v))
+  const amount = (n: RecipeIngredient) => clamp(Math.round(avg((p) => p[`preferred_${n}`])), mm[n])
+  return {
+    price: round2(clamp(roundTo(avg((p) => p.average_expense), 0.05), mm.price)),
+    recipe: { ice: amount('ice'), sugar: amount('sugar'), lemons: amount('lemons') },
+  }
+}
+
 function samplePlan(cfg: GameConfig) {
   const mm = cfg.min_max_values
   return {
@@ -96,17 +151,20 @@ function costPerCup(cfg: GameConfig, recipe: Record<RecipeIngredient, number>): 
   return RECIPE_INGREDIENTS.reduce((sum, n) => sum + recipe[n] * cfg.ingredients[n].unit_cost, 0) + cfg.ingredients.cups.unit_cost
 }
 
-function refusal(cfg: GameConfig, t: PersonType, price: number, recipe: Record<RecipeIngredient, number>, scores: Record<string, number>): string {
-  const p = cfg.people_preferences[t]
-  const factor = (Object.keys(scores) as (keyof typeof scores)[]).reduce((a, b) => (scores[b] < scores[a] ? b : a))
-  if (factor === 'price') return REASON_TEXT[price < p.average_expense ? 'too_cheap' : 'too_pricey']
-  const key = factor as RecipeIngredient
-  const tooMuch = recipe[key] > (p[`preferred_${key}`] as number)
-  const reason = { ice: ['needs_more_ice', 'too_much_ice'], sugar: ['not_sweet_enough', 'too_sweet'], lemons: ['needs_more_lemon', 'too_sour'] }[key][tooMuch ? 1 : 0]
-  return REASON_TEXT[reason]
+function refusal(cfg: GameConfig, t: PersonType, price: number, recipe: Recipe, scores: Recipe): string {
+  return REASON_TEXT[refusalReason(cfg.people_preferences[t], price, recipe, scores)]
 }
 
 const KERNEL = 'score = max(0, 1 − |value − favourite| ÷ reach)\nreach = distance from the favourite to the FARTHER end of the allowed range'
+
+const TOLERANCE_KERNEL = `score = max(0, 1 − |amount − favourite| ÷ tolerance)
+tolerance = "below" if the cup has less than their favourite, "above" if more`
+
+const BUY = `quality       = average(ice score, sugar score, lemons score)      // 0 to 1
+would pay     = budget × (1 + quality swing × (2 × quality − 1))
+chance to buy = 1 ÷ (1 + e^((price − would pay) ÷ spread))
+spread        = price tolerance above × budget ÷ ln 19
+if price < budget × (1 − price tolerance below): chance × price ÷ that floor`
 
 /* ------------------------------------------------------------------ Game */
 
@@ -196,15 +254,16 @@ const hoursSection: Doc = {
   title: () => 'Hours, temperature and price',
   body: () => (
     <>
-      <P>These three ranges set the limits of each day. Each one also does a second, less obvious job: it sets how picky customers are.</P>
+      <P>These three ranges set the limits of each day.</P>
       <P>
-        A customer scores every factor (hour, temperature, price, and each recipe ingredient) from 0 to 1. The score is 1 at their favourite value and drops
-        in a straight line to 0 at the far end of the allowed range:
+        The hour and temperature ranges also set how strongly customers react to them. A customer scores the hour and the temperature from 0 to 1: 1 at their
+        favourite value, dropping in a straight line to 0 at the far end of the allowed range. Those scores change how many people come out, not whether they
+        buy.
       </P>
       <Formula>{KERNEL}</Formula>
       <P>
-        So <strong>widening a range makes customers more tolerant</strong> (the slope is gentler), and narrowing it makes them stricter. Open the help on
-        each range to see the curves for your current settings.
+        So <strong>widening the hour or temperature range makes customers more tolerant</strong> (the slope is gentler), and narrowing it makes them
+        stricter. The price range only limits what you may charge: how customers react to a price comes from their own budget and price tolerance.
       </P>
     </>
   ),
@@ -284,33 +343,27 @@ const price: Doc = {
   body: ({ config }) => {
     const r = config.min_max_values.price
     const xs = priceSteps(config)
-    const child = config.people_preferences.Child
-    const reach = Math.max(child.average_expense - r.min, r.max - child.average_expense)
-    const probe = round2(Math.min(r.max, child.average_expense + reach / 3))
+    const plan = typicalPlan(config)
     return (
       <>
         <P>
-          The lowest and highest price you may charge for a cup, currently {money(r.min)} to {money(r.max)}.
+          The lowest and highest price you may charge for a cup, currently {money(r.min)} to {money(r.max)}. Every customer type’s budget (“Expects to pay”)
+          must fall inside it.
         </P>
         <H>How it affects the game</H>
         <P>
-          Besides limiting your choice, the range sets how fast customers lose interest as your price moves away from what they expect to pay. The price
-          score is one of the four equal parts of every customer’s chance to buy.
+          The range only limits your choice. How fast customers lose interest as the price rises comes from each type’s budget, price tolerance and how much
+          they like your recipe (see “Customers”).
         </P>
-        <Formula>{KERNEL.replace(/value/, 'your price').replace(/favourite/g, 'expected price')}</Formula>
         <LineChart
-          title="Price score per customer type"
+          title={`Chance to buy at each price, with ${plan.recipe.ice} ice, ${plan.recipe.sugar} sugar, ${plan.recipe.lemons} lemons`}
           labels={xs.map((x) => `$${x.toFixed(2)}`)}
-          series={scoreSeries(config, 'price', xs)}
+          series={chanceSeries(config, plan.recipe, xs)}
           xLabel="Cup price"
-          yLabel="Price score"
+          yLabel="Chance to buy"
           fmt="percent"
         />
-        <Example>
-          Children expect to pay {money(child.average_expense)}. The farther end of the range is {money(reach)} away, so charging {money(probe)} gives a price
-          score of 1 − {money(probe - child.average_expense)} ÷ {money(reach)} = <strong>{pct(score(config, child, 'price', probe))}</strong>.
-        </Example>
-        <Note>The penalty is symmetric: a cup far cheaper than expected also scores low, because it looks suspicious.</Note>
+        <Note>A very high maximum lets you price everyone out; a very low minimum lets you sell at a loss or look suspiciously cheap.</Note>
       </>
     )
   },
@@ -331,9 +384,8 @@ const recipeSection: Doc = {
         ))}
       />
       <P>
-        Every customer type has a favourite amount of each ingredient, and it must fall inside these limits. Like the other ranges, they also set how picky
-        customers are: a customer’s score for an ingredient falls from 1 at their favourite to 0 at the far end of the range. Each ingredient score is one
-        quarter of the chance to buy.
+        Every customer type has a favourite amount of each ingredient, and it must fall inside these limits. The limits do not change how picky customers are:
+        each type has its own tolerance for a cup with less or more than its favourite.
       </P>
     </>
   ),
@@ -354,7 +406,7 @@ function recipeRange(n: RecipeIngredient): Doc {
           <LineChart
             title={`${cap(n)} score per customer type`}
             labels={xs}
-            series={scoreSeries(config, n, xs)}
+            series={ingredientSeries(config, n, xs)}
             xLabel={`${cap(n)} per cup`}
             yLabel="Score"
             fmt="percent"
@@ -364,7 +416,7 @@ function recipeRange(n: RecipeIngredient): Doc {
               head={['Customer', 'Favourite', `Score at ${r.min}`, `Score at ${r.max}`]}
               rows={PERSON_TYPES.map((t) => {
                 const p = config.people_preferences[t]
-                return [t, p[`preferred_${n}`], pct(score(config, p, n, r.min)), pct(score(config, p, n, r.max))]
+                return [t, p[`preferred_${n}`], pct(ingredientScore(p, n, r.min)), pct(ingredientScore(p, n, r.max))]
               })}
             />
           </Example>
@@ -467,30 +519,47 @@ const weatherRange: Doc = {
 const customersSection: Doc = {
   title: () => 'Customers',
   body: ({ config }) => {
-    const plan = samplePlan(config)
+    const plan = typicalPlan(config)
     const rows = PERSON_TYPES.map((t) => {
-      const s = buyScores(config, config.people_preferences[t], plan.price, plan.recipe)
-      const chance = (s.price + s.ice + s.sugar + s.lemons) / 4
-      return { t, s, chance, reason: refusal(config, t, plan.price, plan.recipe, s) }
+      const d = buyDecision(config, config.people_preferences[t], plan.price, plan.recipe)
+      return { t, ...d, reason: refusal(config, t, plan.price, plan.recipe, d.scores) }
     })
     return (
       <>
-        <P>Four customer types walk past the stand. Each has its own favourite hour, temperature, weather, price and recipe. Two things are simulated for them:</P>
+        <P>Four customer types walk past the stand. Each has its own favourite hour, temperature, weather, budget and recipe. Two things are simulated for them:</P>
         <H>1. How many come</H>
         <Formula>{`bonus    = average(weather match (0 or 1), hour score, temperature score)
 expected = base visitors × (1 + bonus) × weather multiplier
 count    = random (Poisson) around expected`}</Formula>
         <P>The bonus is between 0 and 1, so on a perfect day a type brings up to twice its base visitors (before the weather multiplier).</P>
         <H>2. Whether each one buys</H>
-        <Formula>{`chance to buy = average(price score, ice score, sugar score, lemons score)`}</Formula>
         <P>
-          Each score is 1 when you hit their preference exactly and falls in a straight line to 0 at the far end of the allowed range. When someone says no, the
-          reason shown is their lowest-scoring factor.
+          Your recipe sets what a customer is willing to pay, and your price is compared against it. Each ingredient scores 1 at their favourite amount and
+          falls in a straight line to 0 at their tolerance below or above it. A cup they love raises what they would pay above their budget; a cup they dislike
+          lowers it.
+        </P>
+        <Formula>{BUY}</Formula>
+        <P>
+          Half of a type buys when you charge exactly what they would pay. The chance climbs as you go under it and falls as you go over it, reaching about 5%
+          one “price tolerance above” past it.
+        </P>
+        <P>
+          When someone says no, the reason is “too cheap” if the price looked suspicious. Otherwise it is “too pricey” if the price is further over their budget
+          (counted in price tolerances) than their least favourite ingredient is from perfect, or else that ingredient.
         </P>
         <Example title={`Worked example: ${money(plan.price)} with ${plan.recipe.ice} ice, ${plan.recipe.sugar} sugar, ${plan.recipe.lemons} lemons`}>
           <Table
-            head={['Customer', 'Price', 'Ice', 'Sugar', 'Lemons', 'Chance to buy', 'Most likely “no”']}
-            rows={rows.map((r) => [r.t, pct(r.s.price), pct(r.s.ice), pct(r.s.sugar), pct(r.s.lemons), <strong key="c">{pct(r.chance)}</strong>, r.reason])}
+            head={['Customer', 'Ice', 'Sugar', 'Lemons', 'Quality', 'Would pay', 'Chance to buy', 'Most likely “no”']}
+            rows={rows.map((r) => [
+              r.t,
+              pct(r.scores.ice),
+              pct(r.scores.sugar),
+              pct(r.scores.lemons),
+              pct(r.quality),
+              money(r.wtp),
+              <strong key="c">{pct(r.chance)}</strong>,
+              r.reason,
+            ])}
           />
         </Example>
         <BarChart
@@ -502,6 +571,33 @@ count    = random (Poisson) around expected`}</Formula>
           fmt="percent"
         />
         <P>The customer types are fixed; their values are yours to tune.</P>
+      </>
+    )
+  },
+}
+
+const qualitySwing: Doc = {
+  title: () => 'Recipe effect on price',
+  body: ({ config }) => {
+    const s = config.quality_swing
+    const adult = config.people_preferences.Adult
+    return (
+      <>
+        <P>
+          How much your recipe moves what customers are willing to pay, from 0 to 1. With {s}, a cup a customer loves (quality 100%) makes them pay up to{' '}
+          <strong>{pct(1 + s)}</strong> of their budget, an average cup {pct(1)}, and a cup they dislike in every way <strong>{pct(1 - s)}</strong>.
+        </P>
+        <Formula>would pay = budget × (1 + quality swing × (2 × quality − 1))</Formula>
+        <List
+          items={[
+            '0 means the recipe never changes what people pay: only price matters for whether they buy.',
+            'Higher values reward a recipe tuned to your customers with room to charge more, and punish a poor recipe harder.',
+          ]}
+        />
+        <Example>
+          Adults have a budget of {money(adult.average_expense)}: they would pay {money(willingnessToPay(config, adult, 1))} for their favourite cup and{' '}
+          {money(willingnessToPay(config, adult, 0))} for one they dislike in every way.
+        </Example>
       </>
     )
   },
@@ -555,27 +651,69 @@ const averageExpense: Doc = {
     const p = config.people_preferences[person]
     const r = config.min_max_values.price
     const xs = priceSteps(config)
-    const probes = [p.average_expense, round2(Math.min(r.max, p.average_expense + 0.5)), round2(Math.max(r.min, p.average_expense - 0.5)), r.max]
+    const fav = favouriteRecipe(p)
+    const best = willingnessToPay(config, p, 1)
+    const probes = [...new Set([cheapFloor(p), p.average_expense, best, r.max].map((x) => round2(Math.min(r.max, Math.max(r.min, x)))))]
     return (
       <>
         <P>
-          What a {person.toLowerCase()} expects to pay for a cup: {money(p.average_expense)}. Their price score is 1 at exactly that price and falls to 0 at the
-          farther end of the price range ({money(r.min)} to {money(r.max)}).
+          The budget of a {person.toLowerCase()}: what they would pay for an average cup, {money(p.average_expense)}. A recipe they like raises what they would
+          pay, one they dislike lowers it (see “Recipe effect on price”). For their favourite cup they would pay {money(best)}.
         </P>
         <List
           items={[
-            'Much higher than expected feels expensive.',
-            'Much lower than expected feels suspicious, and is penalised just as much.',
-            'The price score is one quarter of their chance to buy.',
+            'Half of them buy at exactly what they would pay; more buy below it, fewer above.',
+            `Under ${money(cheapFloor(p))} the cup looks suspiciously cheap, and fewer buy the cheaper it gets (see “Price tolerance”).`,
+            'It must fall inside the cup price range.',
           ]}
         />
-        <LineChart title="Price score" labels={xs.map((x) => `$${x.toFixed(2)}`)} series={scoreSeries(config, 'price', xs, person)} xLabel="Cup price" yLabel="Price score" fmt="percent" />
+        <LineChart
+          title="Chance to buy their favourite cup"
+          labels={xs.map((x) => `$${x.toFixed(2)}`)}
+          series={chanceSeries(config, fav, xs, person)}
+          xLabel="Cup price"
+          yLabel="Chance to buy"
+          fmt="percent"
+        />
         <Example>
-          <Table head={['You charge', 'Price score', 'Effect on chance to buy']} rows={[...new Set(probes)].map((x) => [money(x), pct(score(config, p, 'price', x)), `up to −${pct((1 - score(config, p, 'price', x)) / 4)}`])} />
+          <Table head={['You charge', 'Chance to buy their favourite cup']} rows={probes.map((x) => [money(x), pct(buyProbability(p, x, best))])} />
         </Example>
       </>
     )
   },
+}
+
+function priceToleranceDoc(): Doc {
+  return {
+    title: ({ person }) => `Price tolerance${person ? ` (${person})` : ''}`,
+    body: ({ config, person = 'Child' }) => {
+      const p = config.people_preferences[person]
+      const t = p.tolerances.price
+      const best = willingnessToPay(config, p, 1)
+      return (
+        <>
+          <P>How a {person.toLowerCase()} reacts to your price, as shares of their budget ({money(p.average_expense)}).</P>
+          <List
+            items={[
+              <>
+                <strong>Below ({pct(t.below)}).</strong> A price more than {pct(t.below)} under their budget looks suspicious: under{' '}
+                {money(cheapFloor(p))} the chance to buy shrinks in proportion to the price, and the day report says “{REASON_TEXT.too_cheap}”.
+              </>,
+              <>
+                <strong>Above ({pct(t.above)}).</strong> How quickly interest fades once you charge more than they would pay. {pct(t.above)} of their budget (
+                {money(t.above * p.average_expense)}) past what they would pay, only about 5% still buy.
+              </>,
+            ]}
+          />
+          <Example>
+            For their favourite cup they would pay {money(best)}: half buy at that price, about 95% at {money(best - t.above * p.average_expense)}, and about
+            5% at {money(best + t.above * p.average_expense)}.
+          </Example>
+          <Note>Below must be between 0% and 100%; above must be more than 0% and at most 500%.</Note>
+        </>
+      )
+    },
+  }
 }
 
 const preferredDegrees: Doc = {
@@ -644,20 +782,49 @@ function preferredIngredient(n: RecipeIngredient): Doc {
     body: ({ config, person = 'Child' }) => {
       const p = config.people_preferences[person]
       const fav = p[`preferred_${n}`] as number
-      const r = config.min_max_values[n]
-      const xs = steps(r)
+      const t = p.tolerances[n]
+      const xs = steps(config.min_max_values[n])
       const [low, high] = { ice: ['Needs more ice', 'Too much ice'], sugar: ['Not sweet enough', 'Too sweet'], lemons: ['Needs more lemon', 'Too sour'] }[n]
       return (
         <>
           <P>
-            How many {UNIT[n]} a {person.toLowerCase()} likes in a cup: {fav}. Their {n} score is 1 at exactly that amount and falls to 0 at the farther end of
-            the allowed range ({r.min} to {r.max}). It is one quarter of their chance to buy.
+            How many {UNIT[n]} a {person.toLowerCase()} likes in a cup: {fav}. Their {n} score is 1 at exactly that amount and falls to 0 at {t.below} under it
+            or {t.above} over it (their {n} tolerance). It is one third of the recipe quality, which sets what they would pay.
           </P>
           <P>
-            When {n} is their lowest score and they refuse, the day report says “{low}” if the cup had too little, or “{high}” if it had too much.
+            When {n} is the reason they refuse, the day report says “{low}” if the cup had too little, or “{high}” if it had too much.
           </P>
-          <LineChart title={`${cap(n)} score`} labels={xs} series={scoreSeries(config, n, xs, person)} xLabel={`${cap(n)} per cup`} yLabel="Score" fmt="percent" />
+          <LineChart title={`${cap(n)} score`} labels={xs} series={ingredientSeries(config, n, xs, person)} xLabel={`${cap(n)} per cup`} yLabel="Score" fmt="percent" />
           <Note>It must fall inside the recipe limits for {n}.</Note>
+        </>
+      )
+    },
+  }
+}
+
+function ingredientToleranceDoc(n: RecipeIngredient): Doc {
+  return {
+    title: ({ person }) => `${cap(n)} tolerance${person ? ` (${person})` : ''}`,
+    body: ({ config, person = 'Child' }) => {
+      const p = config.people_preferences[person]
+      const fav = p[`preferred_${n}`] as number
+      const t = p.tolerances[n]
+      const xs = steps(config.min_max_values[n])
+      return (
+        <>
+          <P>
+            How far from their favourite {fav} {UNIT[n]} a {person.toLowerCase()} still enjoys a cup. The score falls in a straight line from 1 at the favourite to 0
+            at <strong>{t.below}</strong> under it (below) or <strong>{t.above}</strong> over it (above).
+          </P>
+          <Formula>{TOLERANCE_KERNEL}</Formula>
+          <List
+            items={[
+              'A small tolerance makes this type picky about this ingredient; a large one makes them easygoing.',
+              'Below and above can differ: someone who loves sweet drinks may barely mind extra sugar but hate too little.',
+              '0 means only the exact favourite amount scores anything.',
+            ]}
+          />
+          <LineChart title={`${cap(n)} score`} labels={xs} series={ingredientSeries(config, n, xs, person)} xLabel={`${cap(n)} per cup`} yLabel="Score" fmt="percent" />
         </>
       )
     },
@@ -796,7 +963,7 @@ const neverPerishes: Doc = {
   title: ({ ingredient }) => `Never perishes${ingredient ? ` (${ingredient})` : ''}`,
   body: () => (
     <>
-      <P>Turn this on for goods that never spoil, like cups. Stock of this ingredient then lasts for the whole game, however long you keep it.</P>
+      <P>Turn this on for goods that never perish, like cups. Stock of this ingredient then lasts for the whole game, however long you keep it.</P>
       <P>While it is on, fresh days and max days have no effect, so they are hidden. Turn it off to set how quickly the ingredient goes bad.</P>
     </>
   ),
@@ -866,7 +1033,12 @@ export const DOCS = {
   weather_range: weatherRange,
   customers_section: customersSection,
   spawn_per_hour: spawnPerHour,
+  quality_swing: qualitySwing,
   average_expense: averageExpense,
+  tolerance_price: priceToleranceDoc(),
+  tolerance_ice: ingredientToleranceDoc('ice'),
+  tolerance_sugar: ingredientToleranceDoc('sugar'),
+  tolerance_lemons: ingredientToleranceDoc('lemons'),
   preferred_degrees: preferredDegrees,
   preferred_weather: preferredWeather,
   preferred_hour: preferredHour,

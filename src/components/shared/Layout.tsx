@@ -11,7 +11,7 @@ export default function Layout(props: { children: ReactNode; wide?: boolean }): 
   return (
     <div className="flex min-h-screen flex-col">
       <header className="sticky top-0 z-40 border-b border-border bg-surface/90 backdrop-blur">
-        <div className={`mx-auto flex items-center gap-4 px-4 py-3 ${props.wide ? 'max-w-7xl' : 'max-w-5xl'}`}>
+        <div className={`mx-auto flex items-center gap-4 px-4 py-3 ${props.wide ? 'max-w-[88rem]' : 'max-w-5xl'}`}>
           <Link to="/home" className="flex items-center gap-2 text-xl font-extrabold tracking-tight">
             <Citrus aria-hidden className="size-6 text-brand-strong" strokeWidth={2.5} /> Lemony
           </Link>
@@ -33,7 +33,7 @@ export default function Layout(props: { children: ReactNode; wide?: boolean }): 
           </nav>
         </div>
       </header>
-      <main className={`mx-auto w-full flex-1 px-4 py-6 ${props.wide ? 'max-w-7xl' : 'max-w-5xl'}`}>{props.children}</main>
+      <main className={`mx-auto w-full flex-1 px-4 py-6 ${props.wide ? 'max-w-[88rem]' : 'max-w-5xl'}`}>{props.children}</main>
       <footer className="border-t border-border py-3 text-center text-xs text-ink-subtle">
         3D models: CC-BY-4.0 — see <Link to="/credits" className="underline">credits</Link>
       </footer>

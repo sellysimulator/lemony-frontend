@@ -21,6 +21,8 @@ import {
   type GameConfig,
   type IngredientConfig,
   type PersonPreferences,
+  type Tolerance,
+  type Tolerances,
   type Weather,
 } from '../types/game'
 import { money } from '../utils/format'
@@ -173,6 +175,10 @@ function ConfigPage(): ReactElement {
     update((c) => {
       c.people_preferences[kind][key] = value
     })
+  const setTolerance = (kind: (typeof PERSON_TYPES)[number], factor: keyof Tolerances, side: keyof Tolerance, value: number) =>
+    update((c) => {
+      c.people_preferences[kind].tolerances[factor][side] = value
+    })
   const setIngredient = <K extends keyof IngredientConfig>(name: (typeof INGREDIENTS)[number], key: K, value: IngredientConfig[K]) =>
     update((c) => {
       c.ingredients[name][key] = value
@@ -313,6 +319,15 @@ function ConfigPage(): ReactElement {
 
             <Section title="Customers" icon={<Users aria-hidden className="size-5 text-brand-strong" />} info={<InfoButton doc="customers_section" />}>
               <div className="space-y-3">
+                <NumberField
+                  label="Recipe effect on price"
+                  step={0.05}
+                  min={0}
+                  max={1}
+                  value={config.quality_swing}
+                  info={<InfoButton doc="quality_swing" />}
+                  onChange={(v) => update((c) => void (c.quality_swing = v))}
+                />
                 {PERSON_TYPES.map((kind) => {
                   const p = config.people_preferences[kind]
                   return (
@@ -391,6 +406,43 @@ function ConfigPage(): ReactElement {
                             />
                           ))}
                         </FieldGroup>
+                        <FieldGroup title="Tolerances">
+                          <div className="grid grid-cols-2 gap-3">
+                            {RECIPE_INGREDIENTS.flatMap((n) =>
+                              (['below', 'above'] as const).map((side) => (
+                                <NumberField
+                                  key={`${n}-${side}`}
+                                  compact
+                                  label={
+                                    <span>
+                                      <IngredientIcon name={n} /> {n.charAt(0).toUpperCase() + n.slice(1)} {side}
+                                    </span>
+                                  }
+                                  step={0.5}
+                                  min={0}
+                                  max={20}
+                                  value={p.tolerances[n][side]}
+                                  info={<InfoButton doc={`tolerance_${n}`} person={kind} />}
+                                  onChange={(v) => setTolerance(kind, n, side, v)}
+                                />
+                              )),
+                            )}
+                            {(['below', 'above'] as const).map((side) => (
+                              <NumberField
+                                key={`price-${side}`}
+                                compact
+                                label={`Price ${side}`}
+                                suffix="× budget"
+                                step={0.05}
+                                min={side === 'below' ? 0 : 0.05}
+                                max={side === 'below' ? 1 : 5}
+                                value={p.tolerances.price[side]}
+                                info={<InfoButton doc="tolerance_price" person={kind} />}
+                                onChange={(v) => setTolerance(kind, 'price', side, v)}
+                              />
+                            ))}
+                          </div>
+                        </FieldGroup>
                       </div>
                     </SubCard>
                   )
@@ -412,7 +464,7 @@ function ConfigPage(): ReactElement {
                           <IngredientIcon name={name} /> {name}
                         </>
                       }
-                      aside={cfg.never_perishes ? 'never spoils' : `${money(cfg.unit_cost)} / unit`}
+                      aside={`${money(cfg.unit_cost)} / unit${cfg.never_perishes ? ' · never perishes' : ''}`}
                     >
                       <div className="space-y-5">
                         <FieldGroup title="Buying">

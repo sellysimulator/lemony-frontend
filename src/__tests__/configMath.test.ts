@@ -1,8 +1,73 @@
 import { describe, expect, it } from 'vitest'
-import { hazard, kernel, largestDiff, packPrice, survival, weatherOdds } from '../game/configMath'
-import type { GameConfig, IngredientConfig } from '../types/game'
+import {
+  asymmetricKernel,
+  buyDecision,
+  buyProbability,
+  hazard,
+  kernel,
+  largestDiff,
+  packPrice,
+  refusalReason,
+  survival,
+  weatherOdds,
+  willingnessToPay,
+} from '../game/configMath'
+import type { GameConfig, IngredientConfig, PersonPreferences } from '../types/game'
 
 const lemons: IngredientConfig = { unit_cost: 0.15, packs: [{ size: 50, discount: 0 }], fresh_days: 3, max_days: 7, never_perishes: false }
+
+// Mirrors the default Adult and tests/test_core/test_engine.py.
+const adult: PersonPreferences = {
+  spawn_per_hour: 5,
+  average_expense: 0.8,
+  preferred_degrees: 20,
+  preferred_weather: 'sunny',
+  preferred_ice: 1,
+  preferred_sugar: 1,
+  preferred_lemons: 3,
+  preferred_hour: 17,
+  tolerances: {
+    ice: { below: 1, above: 2 },
+    sugar: { below: 2, above: 2 },
+    lemons: { below: 1, above: 2 },
+    price: { below: 0.5, above: 0.6 },
+  },
+}
+const swingCfg = { quality_swing: 0.4 } as GameConfig
+
+describe('buy model', () => {
+  it('ingredient kernel uses a separate reach below and above', () => {
+    expect(asymmetricKernel(1, 2, 1, 3)).toBe(0)
+    expect(asymmetricKernel(3, 2, 1, 3)).toBeCloseTo(2 / 3)
+    expect(asymmetricKernel(2, 2, 0, 0)).toBe(1)
+  })
+
+  it('a better recipe raises what they would pay', () => {
+    expect(buyDecision(swingCfg, adult, 0.8, { ice: 1, sugar: 1, lemons: 3 }).quality).toBe(1)
+    expect(buyDecision(swingCfg, adult, 0.8, { ice: 5, sugar: 5, lemons: 0 }).quality).toBe(0)
+    expect(willingnessToPay(swingCfg, adult, 1)).toBeCloseTo(1.12)
+    expect(willingnessToPay(swingCfg, adult, 0.5)).toBeCloseTo(0.8)
+    expect(willingnessToPay(swingCfg, adult, 0)).toBeCloseTo(0.48)
+  })
+
+  it('half buy at what they would pay, 5% one tolerance over, 95% one under', () => {
+    const reach = 0.6 * 0.8
+    expect(buyProbability(adult, 1, 1)).toBeCloseTo(0.5)
+    expect(buyProbability(adult, 1 + reach, 1)).toBeCloseTo(0.05)
+    expect(buyProbability(adult, 1 - reach, 1)).toBeCloseTo(0.95)
+  })
+
+  it('refusal blames a suspicious price, an over-budget price, or the worst ingredient', () => {
+    const favourite = { ice: 1, sugar: 1, lemons: 3 }
+    const fewerLemons = { ice: 1, sugar: 1, lemons: 2 }
+    const perfect = { ice: 1, sugar: 1, lemons: 1 }
+    const scores = { ice: 1, sugar: 1, lemons: 0 }
+    expect(refusalReason(adult, 0.3, favourite, perfect)).toBe('too_cheap')
+    expect(refusalReason(adult, 0.8, favourite, perfect)).toBe('too_pricey')
+    expect(refusalReason(adult, 0.8, fewerLemons, scores)).toBe('needs_more_lemon')
+    expect(refusalReason(adult, 2, fewerLemons, scores)).toBe('too_pricey')
+  })
+})
 
 describe('configMath', () => {
   it('kernel is 1 at the preference and 0 at the reach', () => {

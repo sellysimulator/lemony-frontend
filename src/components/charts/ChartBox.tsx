@@ -4,7 +4,7 @@ import { useState, type ReactElement, type ReactNode } from 'react'
 export default function ChartBox(props: { title: string; children: ReactNode; table: { head: string[]; rows: (string | number)[][] }; height?: number }): ReactElement {
   const [asTable, setAsTable] = useState(false)
   return (
-    <figure className="rounded-2xl border border-border bg-surface-raised p-4 shadow-sm">
+    <figure className="min-w-0 rounded-2xl border border-border bg-surface-raised p-4 shadow-sm">
       <figcaption className="mb-2 flex items-center">
         <span className="font-bold">{props.title}</span>
         <button type="button" onClick={() => setAsTable(!asTable)} className="ml-auto text-xs text-ink-muted underline">
@@ -37,7 +37,7 @@ export default function ChartBox(props: { title: string; children: ReactNode; ta
           </table>
         </div>
       ) : (
-        <div style={{ height: props.height ?? 240 }}>{props.children}</div>
+        <div className="relative" style={{ height: props.height ?? 240 }}>{props.children}</div>
       )}
     </figure>
   )

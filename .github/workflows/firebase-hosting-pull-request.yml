@@ -13,7 +13,17 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: npm ci && npm run build
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run test:run
+      # A deploy bundle must point at the Render backend: Hosting cannot proxy
+      # the socket. The vite.config.ts guard fails the build if these are unset.
+      - run: npm run build
+        env:
+          REQUIRE_BACKEND_ENV: '1'
+          VITE_API_BASE_URL: ${{ vars.VITE_API_BASE_URL }}
+          VITE_SOCKET_URL: ${{ vars.VITE_SOCKET_URL }}
+          VITE_BOARD_VIEW: ${{ vars.VITE_BOARD_VIEW }}
       - uses: FirebaseExtended/action-hosting-deploy@v0
         with:
           repoToken: ${{ secrets.GITHUB_TOKEN }}

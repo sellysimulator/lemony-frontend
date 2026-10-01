@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { actorAt, actorsAt, AT_STAND, dayBounds, revealedCount, tally, WALK_IN, WALK_OUT } from '../game/timeline'
-import type { CustomerEvent } from '../types/game'
+import { actorAt, actorsAt, AT_STAND, cupsLeft, dayBounds, openingStock, revealedCount, stockAfter, tally, WALK_IN, WALK_OUT } from '../game/timeline'
+import type { CustomerEvent, DayRecord } from '../types/game'
 
 const ev = (id: number, arrive: number, outcome: CustomerEvent['outcome'] = 'bought'): CustomerEvent => ({
   id,
@@ -50,5 +50,27 @@ describe('timeline', () => {
     expect(b.close).toBe(1080)
     expect(b.start).toBeLessThan(b.open - WALK_IN + 1)
     expect(b.end).toBeGreaterThan(b.close + AT_STAND + WALK_OUT - 1)
+  })
+})
+
+describe('inventory during the day', () => {
+  const recipe = { ice: 3, sugar: 2, lemons: 1 }
+  const record = {
+    recipe,
+    buyers: 10,
+    inventory_end: { ice: 5, sugar: 0, lemons: 4, cups: 20 },
+    perished: { ice: 5, sugar: 0, lemons: 1, cups: 0 },
+  } as unknown as DayRecord
+
+  it('rebuilds opening stock from the close, overnight losses and cups sold', () => {
+    expect(openingStock(record)).toEqual({ ice: 40, sugar: 20, lemons: 15, cups: 30 })
+    expect(openingStock({ ...record, inventory_end: undefined })).toBeNull()
+  })
+
+  it('draws stock down per cup sold and counts the cups left', () => {
+    const opening = openingStock(record)!
+    expect(stockAfter(opening, recipe, 4)).toEqual({ ice: 28, sugar: 12, lemons: 11, cups: 26 })
+    expect(cupsLeft(stockAfter(opening, recipe, 4), recipe)).toBe(6)
+    expect(cupsLeft(stockAfter(opening, recipe, 10), recipe)).toBe(0)
   })
 })

@@ -4,7 +4,7 @@
  * server still runs the real simulation.
  */
 import { roundCents } from '../utils/money'
-import { WEATHER_TYPES, type GameConfig, type IngredientConfig, type PackOption, type PersonPreferences, type Range, type Weather } from '../types/game'
+import { RECIPE_INGREDIENTS, WEATHER_TYPES, type GameConfig, type IngredientConfig, type PackOption, type PersonPreferences, type Range, type RecipeIngredient, type Weather } from '../types/game'
 
 /** 1 at the preference, falling linearly to 0 at `denominator` away; clamped to [0, 1]. */
 export function kernel(current: number, preferred: number, denominator: number): number {
@@ -17,18 +17,14 @@ export function largestDiff(range: Range, preferred: number): number {
   return Math.max(preferred - range.min, range.max - preferred)
 }
 
-export type ScoredRange = 'price' | 'temperature' | 'hour' | 'ice' | 'sugar' | 'lemons'
+export type ScoredRange = 'temperature' | 'hour'
 
 const PREFERRED: Record<ScoredRange, keyof PersonPreferences> = {
-  price: 'average_expense',
   temperature: 'preferred_degrees',
   hour: 'preferred_hour',
-  ice: 'preferred_ice',
-  sugar: 'preferred_sugar',
-  lemons: 'preferred_lemons',
 }
 
-/** How much a person likes `value` of one factor (0–1). */
+/** How much a person likes `value` of a spawn factor (0–1); the range sets the reach. */
 export function score(cfg: GameConfig, p: PersonPreferences, factor: ScoredRange, value: number): number {
   const preferred = p[PREFERRED[factor]] as number
   return kernel(value, preferred, largestDiff(cfg.min_max_values[factor], preferred))
@@ -43,13 +39,70 @@ export function expectedSpawn(cfg: GameConfig, p: PersonPreferences, hour: numbe
   return p.spawn_per_hour * (1 + spawnBonus(cfg, p, hour, weather, temperature)) * cfg.weather_multipliers[weather]
 }
 
-export function buyScores(cfg: GameConfig, p: PersonPreferences, price: number, recipe: { ice: number; sugar: number; lemons: number }) {
+export type Recipe = Record<RecipeIngredient, number>
+
+/** Like `kernel`, with a separate reach under and over the preference. */
+export function asymmetricKernel(current: number, preferred: number, below: number, above: number): number {
+  return kernel(current, preferred, current < preferred ? below : above)
+}
+
+/** How much a person likes `amount` of one ingredient (0–1), from their own tolerances. */
+export function ingredientScore(p: PersonPreferences, name: RecipeIngredient, amount: number): number {
+  const t = p.tolerances[name]
+  return asymmetricKernel(amount, p[`preferred_${name}`], t.below, t.above)
+}
+
+export function ingredientScores(p: PersonPreferences, recipe: Recipe): Recipe {
   return {
-    price: score(cfg, p, 'price', price),
-    ice: score(cfg, p, 'ice', recipe.ice),
-    sugar: score(cfg, p, 'sugar', recipe.sugar),
-    lemons: score(cfg, p, 'lemons', recipe.lemons),
+    ice: ingredientScore(p, 'ice', recipe.ice),
+    sugar: ingredientScore(p, 'sugar', recipe.sugar),
+    lemons: ingredientScore(p, 'lemons', recipe.lemons),
   }
+}
+
+export const recipeQuality = (s: Recipe): number => (s.ice + s.sugar + s.lemons) / 3
+
+/** What this person would pay for a cup of this quality: budget × (1 ± quality_swing). */
+export function willingnessToPay(cfg: GameConfig, p: PersonPreferences, quality: number): number {
+  return p.average_expense * (1 + cfg.quality_swing * (2 * quality - 1))
+}
+
+/** Below this price the cup looks suspicious. */
+export const cheapFloor = (p: PersonPreferences): number => p.average_expense * (1 - p.tolerances.price.below)
+
+/** Chance to buy at `price` given what they would pay: half buy at `wtp`, 5 % at `wtp + above × budget`. */
+export function buyProbability(p: PersonPreferences, price: number, wtp: number): number {
+  const spread = (p.tolerances.price.above * p.average_expense) / Math.log(19)
+  let chance: number
+  if (spread <= 0) chance = price <= wtp ? 1 : 0
+  else chance = 1 / (1 + Math.exp(Math.max(-60, Math.min(60, (price - wtp) / spread))))
+  const floor = cheapFloor(p)
+  if (price < floor) chance *= price / floor
+  return chance
+}
+
+/** Everything a customer weighs for one plan. */
+export function buyDecision(cfg: GameConfig, p: PersonPreferences, price: number, recipe: Recipe) {
+  const scores = ingredientScores(p, recipe)
+  const quality = recipeQuality(scores)
+  const wtp = willingnessToPay(cfg, p, quality)
+  return { scores, quality, wtp, chance: buyProbability(p, price, wtp) }
+}
+
+/** Why they would say no (mirrors demand.refusal_reason). */
+export function refusalReason(p: PersonPreferences, price: number, recipe: Recipe, scores: Recipe): string {
+  if (price < cheapFloor(p)) return 'too_cheap'
+  const factor = RECIPE_INGREDIENTS.reduce((a, b) => (scores[b] < scores[a] ? b : a))
+  const budget = p.average_expense
+  const pressure = budget > 0 ? (price - budget) / (p.tolerances.price.above * budget) : 1
+  if (scores[factor] >= 1 || pressure >= 1 - scores[factor]) return 'too_pricey'
+  const tooMuch = recipe[factor] > p[`preferred_${factor}`]
+  const reasons: Record<RecipeIngredient, [string, string]> = {
+    ice: ['too_much_ice', 'needs_more_ice'],
+    sugar: ['too_sweet', 'not_sweet_enough'],
+    lemons: ['too_sour', 'needs_more_lemon'],
+  }
+  return reasons[factor][tooMuch ? 0 : 1]
 }
 
 /** Chance a unit of this age spoils at tonight's check (age 1 = first night after purchase). */

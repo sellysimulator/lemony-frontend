@@ -1,10 +1,13 @@
 /**
- * Firebase web configuration, read from VITE_FIREBASE_* (public identifiers —
- * they ship in the bundle; security comes from Auth rules, not from hiding them).
+ * Firebase web configuration for project lemony-89f41, committed here on
+ * purpose: these are public identifiers that ship in the bundle anyway; security
+ * comes from Auth, not from hiding them.
  *
- * When the config is absent the app runs guest-only: `auth` is null and the
- * Google button is hidden. `initializeAuth` (never `getAuth`) keeps the
- * cross-origin redirect iframe off the start-up path; `signInWithPopup` passes
+ * `firebaseConfigured` / a null `auth` (guest-only, Google button hidden) only
+ * matter if this config is ever blanked out.
+ *
+ * `initializeAuth` (never `getAuth`) keeps the cross-origin redirect iframe off
+ * the start-up path; `signInWithPopup` passes
  * `browserPopupRedirectResolver` itself. [HARD-WON, game_stack.md §1]
  */
 import { initializeApp } from 'firebase/app'

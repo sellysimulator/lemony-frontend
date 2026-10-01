@@ -16,13 +16,13 @@ export default function DecisionFeed(props: { events: CustomerEvent[]; price: nu
     <div className="rounded-2xl border border-border bg-surface-raised p-3 shadow-sm">
       <h3 className="mb-2 text-sm font-bold">At the stand</h3>
       {recent.length === 0 ? <p className="text-sm text-ink-muted">Nobody yet…</p> : null}
-      <ul className="space-y-1" aria-live="polite">
+      <ul className="grid gap-x-6 gap-y-1 xl:grid-cols-2" aria-live="polite">
         {recent.map((e) => (
-          <li key={e.id} className="flex items-center gap-2 text-sm">
+          <li key={e.id} className="flex min-w-0 items-center gap-2 text-sm">
             <PersonIcon type={e.type} />
             <span className="w-16 text-xs text-ink-subtle tabular-nums">{clockLabel(e.arrive_min)}</span>
             <span className="text-ink-muted">{e.type}</span>
-            <span className="ml-auto">
+            <span className="ml-auto min-w-0 truncate">
               {e.outcome === 'bought' ? (
                 <span className="inline-flex items-center gap-1 font-semibold text-good"><CircleCheck aria-hidden className="size-4" /> bought {money(props.price)}</span>
               ) : e.outcome === 'sold_out' ? (

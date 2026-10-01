@@ -1,6 +1,7 @@
 import { lazy, Suspense, useEffect, useState, type ReactElement } from 'react'
 import Hud from './Hud'
 import DecisionFeed from './DecisionFeed'
+import InventoryPanel from './InventoryPanel'
 import Board2D from '../board2d/Board2D'
 import LoadingSpinner from '../shared/LoadingSpinner'
 import { usePlayback } from '../../store/playback'
@@ -64,33 +65,36 @@ export default function DayView(props: { watch: WatchedDay; config: GameConfig }
 
       <Hud events={watch.events} price={watch.record.price} openMin={bounds.open} closeMin={bounds.close} />
 
-      <div className="grid gap-4 lg:grid-cols-[1fr_20rem]">
-        <div className="relative">
-          {view === '3D' ? (
-            <Suspense
-              fallback={
-                <div className="flex aspect-[16/8] items-center justify-center rounded-2xl border border-border bg-surface-raised">
-                  <LoadingSpinner label="Loading the 3D street…" />
-                </div>
-              }
-            >
-              <Board3D {...board} onFail={() => choose('2D')} />
-            </Suspense>
-          ) : (
-            <Board2D {...board} />
-          )}
-          {ended ? (
-            <div className="absolute inset-0 flex items-center justify-center rounded-2xl bg-black/35 backdrop-blur-[2px]">
-              <div className="rounded-2xl bg-surface-raised p-6 text-center shadow-xl">
-                <p className="text-lg font-bold">The stand is closed for the day</p>
-                <button type="button" onClick={() => setPlayView('report')} className="mt-4 rounded-xl bg-brand px-5 py-2 font-bold">
-                  See the day report
-                </button>
+      {/* Width capped by the viewport height (the board is 2:1) so board, clock and controls fit on one screen. */}
+      <div className="relative mx-auto max-w-[calc((100svh-15rem)*2)] min-w-[min(100%,36rem)]">
+        {view === '3D' ? (
+          <Suspense
+            fallback={
+              <div className="flex aspect-[16/8] items-center justify-center rounded-2xl border border-border bg-surface-raised">
+                <LoadingSpinner label="Loading the 3D street…" />
               </div>
+            }
+          >
+            <Board3D {...board} onFail={() => choose('2D')} />
+          </Suspense>
+        ) : (
+          <Board2D {...board} />
+        )}
+        {ended ? (
+          <div className="absolute inset-0 flex items-center justify-center rounded-2xl bg-black/35 backdrop-blur-[2px]">
+            <div className="rounded-2xl bg-surface-raised p-6 text-center shadow-xl">
+              <p className="text-lg font-bold">The stand is closed for the day</p>
+              <button type="button" onClick={() => setPlayView('report')} className="mt-4 rounded-xl bg-brand px-5 py-2 font-bold">
+                See the day report
+              </button>
             </div>
-          ) : null}
-        </div>
+          </div>
+        ) : null}
+      </div>
+
+      <div className="grid items-start gap-4 md:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
         <DecisionFeed events={watch.events} price={watch.record.price} />
+        <InventoryPanel events={watch.events} record={watch.record} />
       </div>
     </div>
   )

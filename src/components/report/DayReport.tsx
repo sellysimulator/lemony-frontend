@@ -50,7 +50,7 @@ export default function DayReport(props: { watch: WatchedDay; state: GameState }
       </div>
 
       <div className="grid gap-5 lg:grid-cols-3">
-        <div className="lg:col-span-2">
+        <div className="min-w-0 lg:col-span-2">
           <ChartBox
             title="Customers by hour"
             table={{ head: ['Hour', 'Visitors', 'Bought', 'Sold out'], rows: record.by_hour.map((h) => [`${h.hour}:00`, h.visitors, h.buyers, h.sold_out]) }}
@@ -148,7 +148,7 @@ export default function DayReport(props: { watch: WatchedDay; state: GameState }
             <p className="text-sm text-ink-muted">Nobody turned you down!</p>
           )}
           <p className="mt-2 text-xs text-ink-muted">
-            Each refusal is attributed to the customer's lowest-scoring factor. Price {money(record.price)} · recipe <IngredientIcon name="ice" /> {record.recipe.ice}{' '}
+            Each refusal names the price when it looked suspicious or sat further over the customer's budget than their least favourite ingredient sat from perfect, and that ingredient otherwise. Price {money(record.price)} · recipe <IngredientIcon name="ice" /> {record.recipe.ice}{' '}
             <IngredientIcon name="sugar" /> {record.recipe.sugar} <IngredientIcon name="lemons" /> {record.recipe.lemons} · cost/cup {money(record.cost_per_cup)}
           </p>
         </Card>
