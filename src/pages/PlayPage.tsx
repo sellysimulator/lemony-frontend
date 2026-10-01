@@ -1,9 +1,10 @@
-import type { ReactElement } from 'react'
+import { useEffect, type ReactElement } from 'react'
 import { Link } from 'react-router-dom'
 import Layout from '../components/shared/Layout'
 import LoadingSpinner from '../components/shared/LoadingSpinner'
 import PlanDay from '../components/plan/PlanDay'
 import DayView from '../components/day/DayView'
+import { loadBoard3D } from '../components/board3d/load'
 import DayReport from '../components/report/DayReport'
 import GameOver from '../components/report/GameOver'
 import { useAuth } from '../auth/AuthContext'
@@ -14,6 +15,18 @@ import type { RouteDescriptor } from '../routes/registry'
 function PlayPage(): ReactElement {
   const { resume, state, view, watch, summary, publicId } = useGameStore()
   const { mode } = useAuth()
+
+  // Warm the 3D board (chunk + models) while the player plans, so switching to
+  // 3D mid-day does not show an empty street while the clock keeps running.
+  useEffect(() => {
+    const warm = () => void loadBoard3D().catch(() => {})
+    if ('requestIdleCallback' in window) {
+      const id = requestIdleCallback(warm)
+      return () => cancelIdleCallback(id)
+    }
+    const id = setTimeout(warm, 1000)
+    return () => clearTimeout(id)
+  }, [])
 
   let body: ReactElement
   if (resume === 'unknown' || (resume === 'active' && !state)) {

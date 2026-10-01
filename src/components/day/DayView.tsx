@@ -3,6 +3,7 @@ import Hud from './Hud'
 import DecisionFeed from './DecisionFeed'
 import InventoryPanel from './InventoryPanel'
 import Board2D from '../board2d/Board2D'
+import { loadBoard3D } from '../board3d/load'
 import LoadingSpinner from '../shared/LoadingSpinner'
 import { usePlayback } from '../../store/playback'
 import { useGameStore, type WatchedDay } from '../../store/gameStore'
@@ -11,7 +12,7 @@ import { getBoardView, setBoardView, type BoardView } from '../../utils/storage'
 import type { GameConfig } from '../../types/game'
 import type { BoardProps } from './types'
 
-const Board3D = lazy(() => import('../board3d/Board3D'))
+const Board3D = lazy(loadBoard3D)
 
 export default function DayView(props: { watch: WatchedDay; config: GameConfig }): ReactElement {
   const { watch, config } = props
@@ -81,7 +82,7 @@ export default function DayView(props: { watch: WatchedDay; config: GameConfig }
           <Board2D {...board} />
         )}
         {ended ? (
-          <div className="absolute inset-0 flex items-center justify-center rounded-2xl bg-black/35 backdrop-blur-[2px]">
+          <div className="absolute inset-0 z-30 flex items-center justify-center rounded-2xl bg-black/35 backdrop-blur-[2px]">
             <div className="rounded-2xl bg-surface-raised p-6 text-center shadow-xl">
               <p className="text-lg font-bold">The stand is closed for the day</p>
               <button type="button" onClick={() => setPlayView('report')} className="mt-4 rounded-xl bg-brand px-5 py-2 font-bold">
