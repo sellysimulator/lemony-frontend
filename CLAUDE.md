@@ -150,13 +150,16 @@ a suspected bug as an explicit before/after proposal instead of rewriting it.
 
 Firebase project `lemony-89f41` (site expected at `lemonysim.web.app`, per the backend's
 CORS). `.github/workflows/firebase-hosting-merge.yml` builds and deploys `dist` on push to
-`main`; `firebase-hosting-pull-request.yml` does preview channels. Both run lint, tests,
+`main`; `firebase-hosting-pull-request.yml` does preview channels. Both pin Node from
+`.nvmrc`, then run lint, tests,
 then build with `REQUIRE_BACKEND_ENV=1` and `VITE_*` from GitHub **repository variables**
 (`vars.VITE_API_BASE_URL`, `vars.VITE_SOCKET_URL`, optional `vars.VITE_BOARD_VIEW`). The
 `vite.config.ts` guard fails the build if a backend URL is empty or points at a Hosting
 origin. Preview-channel origins are not in the backend's `CORS_ORIGINS`, so previews
 render but can't reach the backend.
 
-Known gap — verify before relying on it:
-- **`firebase.json` has no SPA rewrite**, so a hard load of a deep link like `/play` 404s on
-  Hosting; `health.ts`'s comment assumes a `**` rewrite exists.
+`firebase.json` serves site `lemonysim` with a `**` → `/index.html` SPA rewrite (deep
+links and `health.ts`'s HTML-200 check rely on it) and caches `/3dmodels/**` for a year as
+`immutable`. Model URLs carry no content hash, so **never replace a GLB in place — give the
+changed model a new filename** and update `MODEL_URL` in `board3d/models.ts`, or returning
+players keep the old one.

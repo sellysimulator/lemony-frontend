@@ -87,8 +87,8 @@ export function AuthProvider(props: { children: ReactNode }): ReactElement {
     const result = await signInWithPopup(auth, googleProvider, browserPopupRedirectResolver)
     setFirebaseUser(result.user)
     setMode('authenticated')
-    syncUserWithBackend(result.user)
-    // onAuthStateChanged reconnects the socket with the new identity.
+    // onAuthStateChanged fires for this sign-in too: it syncs the profile and
+    // reconnects the socket. Syncing here as well sent two concurrent upserts.
   }, [])
 
   const continueAsGuest = useCallback(() => {
