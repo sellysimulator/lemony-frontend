@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  applyPopularity,
   asymmetricKernel,
   buyDecision,
   buyProbability,
@@ -7,6 +8,7 @@ import {
   kernel,
   largestDiff,
   packPrice,
+  popularity,
   refusalReason,
   survival,
   weatherOdds,
@@ -66,6 +68,18 @@ describe('buy model', () => {
     expect(refusalReason(adult, 0.8, favourite, perfect)).toBe('too_pricey')
     expect(refusalReason(adult, 0.8, fewerLemons, scores)).toBe('needs_more_lemon')
     expect(refusalReason(adult, 2, fewerLemons, scores)).toBe('too_pricey')
+  })
+
+  it('popularity is the mean daily rate, or the start value before any', () => {
+    expect(popularity([], 0.3)).toBe(0.3)
+    expect(popularity([0.5, 1, 0], 0.3)).toBeCloseTo(0.5)
+  })
+
+  it('popularity scales the chance around a neutral half, capped at 100 %', () => {
+    expect(applyPopularity(0.4, 0.5)).toBeCloseTo(0.4)
+    expect(applyPopularity(0.4, 0)).toBeCloseTo(0.2)
+    expect(applyPopularity(0.4, 1)).toBeCloseTo(0.6)
+    expect(applyPopularity(0.9, 1)).toBe(1)
   })
 })
 

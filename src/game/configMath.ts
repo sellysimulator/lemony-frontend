@@ -81,6 +81,14 @@ export function buyProbability(p: PersonPreferences, price: number, wtp: number)
   return chance
 }
 
+/** Mean success rate (cups sold ÷ visitors) of the days with visitors; `start` until there is one. */
+export function popularity(rates: number[], start: number): number {
+  return rates.length ? rates.reduce((a, b) => a + b, 0) / rates.length : start
+}
+
+/** Scale a buy chance by 0.5 + popularity: neutral at 0.5, capped at 100 %. */
+export const applyPopularity = (chance: number, pop: number): number => Math.min(1, chance * (0.5 + pop))
+
 /** Everything a customer weighs for one plan. */
 export function buyDecision(cfg: GameConfig, p: PersonPreferences, price: number, recipe: Recipe) {
   const scores = ingredientScores(p, recipe)

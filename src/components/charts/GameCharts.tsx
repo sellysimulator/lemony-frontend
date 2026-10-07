@@ -19,6 +19,9 @@ export default function GameCharts(props: { summary: GameSummary }): ReactElemen
       hours.set(h.hour, cur)
     }
   const hourKeys = [...hours.keys()].sort((a, b) => a - b)
+  // Games finished before popularity existed carry none.
+  const hasPopularity = days.some((d) => d.popularity != null)
+  const popularityOptions = baseOptions<'line'>({ percent: true })
 
   return (
     <div className="grid gap-4 lg:grid-cols-2">
@@ -89,6 +92,28 @@ export default function GameCharts(props: { summary: GameSummary }): ReactElemen
           options={baseOptions<'line'>({ percent: true })}
         />
       </ChartBox>
+
+      {hasPopularity ? (
+        <ChartBox
+          title="Popularity and success rate by day"
+          table={{
+            head: ['Day', 'Popularity applied', 'Buy chance ×', 'Success rate'],
+            rows: days.map((d) => [d.day, d.popularity == null ? '—' : pct(d.popularity), d.popularity == null ? '—' : `×${(0.5 + d.popularity).toFixed(2)}`, pct(d.conversion)]),
+          }}
+        >
+          <Line
+            data={{
+              labels,
+              datasets: [
+                { label: 'Popularity', data: days.map((d) => d.popularity ?? null), ...lineStyle(SINGLE), spanGaps: true },
+                { label: 'Success rate', data: days.map((d) => d.conversion), ...lineStyle(OUTCOME_SERIES.bought) },
+                { label: 'Neutral (50%)', data: days.map(() => 0.5), ...lineStyle(NEUTRAL), borderDash: [5, 4], pointRadius: 0 },
+              ],
+            }}
+            options={{ ...popularityOptions, scales: { ...popularityOptions.scales, y: { ...popularityOptions.scales?.y, max: 1 } } }}
+          />
+        </ChartBox>
+      ) : null}
 
       <ChartBox
         title="Spoiled ingredients per day"

@@ -11,12 +11,13 @@ import { IngredientIcon } from '../shared/icons'
 export function SummaryTiles(props: { summary: GameSummary }): ReactElement {
   const s = props.summary
   return (
-    <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+    <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-7">
       <Stat label="Final cash" value={money(s.final_cash)} />
       <Stat label="Total profit" value={money(s.total_profit)} tone={s.total_profit >= 0 ? 'good' : 'bad'} />
       <Stat label="Cups sold" value={s.total_buyers} />
       <Stat label="Visitors" value={s.total_visitors} />
       <Stat label="Success rate" value={s.total_visitors ? pct(s.total_buyers / s.total_visitors) : '—'} />
+      <Stat label="Final popularity" value={s.final_popularity == null ? '—' : pct(s.final_popularity)} hint="Average of the daily success rates" />
       <Stat label="Sold-out misses" value={s.total_sold_out} tone={s.total_sold_out ? 'bad' : 'neutral'} />
       <div className="col-span-full flex flex-wrap gap-2 text-sm text-ink-muted">
         Spoiled in total:

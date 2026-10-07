@@ -328,6 +328,15 @@ function ConfigPage(): ReactElement {
                   info={<InfoButton doc="quality_swing" />}
                   onChange={(v) => update((c) => void (c.quality_swing = v))}
                 />
+                <NumberField
+                  label="Starting popularity"
+                  step={0.05}
+                  min={0}
+                  max={1}
+                  value={config.starting_popularity}
+                  info={<InfoButton doc="starting_popularity" />}
+                  onChange={(v) => update((c) => void (c.starting_popularity = v))}
+                />
                 {PERSON_TYPES.map((kind) => {
                   const p = config.people_preferences[kind]
                   return (

@@ -58,6 +58,8 @@ export interface GameConfig {
   min_max_values: Record<RecipeIngredient | 'temperature' | 'hour' | 'price', Range>
   /** How much the recipe moves what customers will pay (0–1). */
   quality_swing: number
+  /** Popularity before the first day with visitors (0–1); buy chances scale by 0.5 + popularity. */
+  starting_popularity: number
   people_preferences: Record<PersonType, PersonPreferences>
   weather_multipliers: Record<Weather, number>
   weather_temperature_ranges: Record<Weather, Range>
@@ -117,6 +119,8 @@ export interface DayRecord {
   sold_out: number
   refused: number
   conversion: number
+  /** Popularity applied to this day's buy chances; absent on games finished before popularity existed. */
+  popularity?: number | null
   perished: Record<IngredientName, number>
   perished_value: number
   cash_end: number
@@ -133,6 +137,8 @@ export interface GameState {
   phase: Phase
   cash: number
   today: { weather: Weather; temperature: number }
+  /** Current popularity (0–1): what the next day played will use. */
+  popularity: number
   inventory: Record<IngredientName, InventoryLine>
   days: DayRecord[]
   last_day_events: CustomerEvent[]
@@ -155,6 +161,8 @@ export interface GameSummary {
   total_visitors: number
   total_buyers: number
   total_sold_out: number
+  /** Popularity after the last day; null on games finished before popularity existed. */
+  final_popularity?: number | null
   perished_totals: Record<IngredientName, number>
   days: DayRecord[]
   config?: GameConfig | null

@@ -85,10 +85,16 @@ export default function PlanDay(props: { state: GameState }): ReactElement {
     <div className="grid gap-5 lg:grid-cols-3">
       <div className="space-y-5 lg:col-span-2">
         <Card title={`Day ${state.day} of ${state.num_days} — morning plan`}>
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
             <Stat label="Weather" value={<span className="capitalize"><WeatherIcon weather={weather.weather} /> {weather.weather}</span>} />
             <Stat label="Temperature" value={`${weather.temperature}°C`} />
             <Stat label="Traffic" value={`×${cfg.weather_multipliers[weather.weather]}`} hint="Weather traffic multiplier" />
+            <Stat
+              label="Popularity"
+              value={pct(state.popularity)}
+              sub={`buy chance ×${(0.5 + state.popularity).toFixed(2)}`}
+              hint="Average share of visitors who bought so far. Every buy chance today is multiplied by 0.5 + popularity."
+            />
             <Stat label="Cash" value={money(state.cash)} />
           </div>
           <p className="mt-3 text-sm text-ink-muted">

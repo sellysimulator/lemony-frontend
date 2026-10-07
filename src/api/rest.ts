@@ -38,6 +38,7 @@ export interface GameListItem {
   total_visitors: number
   total_buyers: number
   total_sold_out: number
+  final_popularity?: number | null
   started_at: string
   finished_at: string
 }

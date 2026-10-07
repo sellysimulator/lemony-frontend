@@ -6,7 +6,7 @@ import { barStyle, baseOptions, OUTCOME_SERIES } from '../charts/chartSetup'
 import { acknowledgeDay } from '../../api/socketHandlers'
 import { useGameStore, type WatchedDay } from '../../store/gameStore'
 import { INGREDIENTS, PERSON_TYPES, type GameState } from '../../types/game'
-import { Trophy } from 'lucide-react'
+import { ArrowDown, ArrowUp, Trophy } from 'lucide-react'
 import { money, pct, REASON_TEXT } from '../../utils/format'
 import { IngredientIcon, PersonIcon, WeatherIcon } from '../shared/icons'
 
@@ -16,6 +16,9 @@ export default function DayReport(props: { watch: WatchedDay; state: GameState }
   const finished = props.state.phase === 'finished'
   const reasons = Object.entries(record.refusal_reasons).sort((a, b) => b[1] - a[1])
   const perishedAny = INGREDIENTS.some((n) => record.perished[n] > 0)
+  // Popularity applied today, and what the next day starts with (later days carry their own).
+  const nextPopularity = props.state.days.find((d) => d.day === record.day + 1)?.popularity ?? props.state.popularity
+  const trend = record.popularity == null || nextPopularity === record.popularity ? null : nextPopularity > record.popularity ? 'up' : 'down'
 
   return (
     <div className="space-y-5">
@@ -40,10 +43,22 @@ export default function DayReport(props: { watch: WatchedDay; state: GameState }
         </div>
       </div>
 
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-7">
         <Stat label="Visitors" value={record.visitors} />
         <Stat label="Cups sold" value={record.buyers} />
-        <Stat label="Success rate" value={pct(record.conversion)} hint="Share of visitors who bought" />
+        <Stat label="Success rate" value={pct(record.conversion)} tone={record.conversion >= 0.5 ? 'good' : 'bad'} hint="Share of visitors who bought" />
+        <Stat
+          label="Popularity"
+          value={record.popularity == null ? '—' : pct(record.popularity)}
+          sub={
+            <span className="inline-flex items-center gap-1">
+              {finished ? 'final' : 'tomorrow'} {pct(nextPopularity)}
+              {trend === 'up' ? <ArrowUp aria-label="up" className="size-3.5 text-good" /> : null}
+              {trend === 'down' ? <ArrowDown aria-label="down" className="size-3.5 text-bad" /> : null}
+            </span>
+          }
+          hint="Popularity applied today, and the average success rate so far that the next day starts with"
+        />
         <Stat label="Sold-out misses" value={record.sold_out} tone={record.sold_out ? 'bad' : 'neutral'} hint="Wanted to buy but you ran out" />
         <Stat label="Revenue" value={money(record.revenue)} />
         <Stat label="Profit" value={money(record.profit)} tone={record.profit >= 0 ? 'good' : 'bad'} hint="Revenue minus today's purchases" />

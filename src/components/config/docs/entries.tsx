@@ -20,6 +20,7 @@ import {
 } from '../../../types/game'
 import { money, pct, REASON_TEXT } from '../../../utils/format'
 import {
+  applyPopularity,
   buyDecision,
   buyProbability,
   cheapFloor,
@@ -547,6 +548,11 @@ count    = random (Poisson) around expected`}</Formula>
           When someone says no, the reason is “too cheap” if the price looked suspicious. Otherwise it is “too pricey” if the price is further over their budget
           (counted in price tolerances) than their least favourite ingredient is from perfect, or else that ingredient.
         </P>
+        <H>3. How popular the stand is</H>
+        <P>
+          Every chance to buy is then multiplied by 0.5 + popularity (never above 100%). Popularity is the average share of visitors who bought on the days so
+          far and starts at {pct(config.starting_popularity)} (see “Starting popularity”). The example below is at a neutral 50%.
+        </P>
         <Example title={`Worked example: ${money(plan.price)} with ${plan.recipe.ice} ice, ${plan.recipe.sugar} sugar, ${plan.recipe.lemons} lemons`}>
           <Table
             head={['Customer', 'Ice', 'Sugar', 'Lemons', 'Quality', 'Would pay', 'Chance to buy', 'Most likely “no”']}
@@ -598,6 +604,68 @@ const qualitySwing: Doc = {
           Adults have a budget of {money(adult.average_expense)}: they would pay {money(willingnessToPay(config, adult, 1))} for their favourite cup and{' '}
           {money(willingnessToPay(config, adult, 0))} for one they dislike in every way.
         </Example>
+      </>
+    )
+  },
+}
+
+const POPULARITY_STEPS = [0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1]
+
+const startingPopularity: Doc = {
+  title: () => 'Starting popularity',
+  body: ({ config }) => {
+    const s = config.starting_popularity
+    const plan = typicalPlan(config)
+    const chances = PERSON_TYPES.map((t) => buyDecision(config, config.people_preferences[t], plan.price, plan.recipe).chance)
+    const adult = config.people_preferences.Adult
+    const adultChance = buyProbability(adult, adult.average_expense, willingnessToPay(config, adult, 1))
+    const probes = [...new Set([0, 0.25, 0.5, 0.75, 1, s])].sort((a, b) => a - b)
+    return (
+      <>
+        <P>
+          Popularity is how well liked your stand is, from 0 (0%) to 1 (100%). It carries over from day to day and multiplies every customer’s chance to buy, on
+          top of what your price and recipe give. This is where it starts: with {s}, day 1’s chances are multiplied by <strong>×{(0.5 + s).toFixed(2)}</strong>.
+        </P>
+        <H>How it changes</H>
+        <Formula>{`success rate = cups sold ÷ visitors                      // one day, 0 to 1
+popularity   = average(success rate of every day so far that had visitors)
+             = starting popularity, until a day has had visitors`}</Formula>
+        <List
+          items={[
+            'It is worked out each morning from the days already played, then holds for the whole day.',
+            'Visitors who find you sold out count as not sold, so running out of stock lowers popularity.',
+            'Days with no visitors are skipped: they say nothing about how well liked you are.',
+            'Every day counts the same, so in a long game one day moves popularity less and less.',
+          ]}
+        />
+        <H>How it changes sales</H>
+        <Formula>{`chance to buy = price-and-recipe chance × (0.5 + popularity)      // at most 100%`}</Formula>
+        <List
+          items={[
+            '0.5 (50%) is neutral: customers buy exactly as price and recipe say.',
+            'At 0 every chance is halved; at 1 every chance is raised by half.',
+            'It feeds itself: sell to more than half your visitors and popularity rises, lifting tomorrow’s chances; sell to fewer and it sinks.',
+          ]}
+        />
+        <LineChart
+          title={`Chance to buy ${money(plan.price)} with ${plan.recipe.ice} ice, ${plan.recipe.sugar} sugar, ${plan.recipe.lemons} lemons, by popularity`}
+          labels={POPULARITY_STEPS.map((x) => pct(x))}
+          series={PERSON_TYPES.map((t, i) => ({ label: t, data: POPULARITY_STEPS.map((x) => applyPopularity(chances[i], x)), color: PERSON_SERIES[t] }))}
+          xLabel="Popularity"
+          yLabel="Chance to buy"
+          fmt="percent"
+        />
+        <Example>
+          <Table
+            head={['Popularity', 'Multiplier', 'Adult buys their favourite cup at their budget']}
+            rows={probes.map((x) => [
+              x === s ? <strong key="p">{pct(x)} (start)</strong> : pct(x),
+              `×${(0.5 + x).toFixed(2)}`,
+              pct(applyPopularity(adultChance, x)),
+            ])}
+          />
+        </Example>
+        <Note>Must be between 0 and 1. The default, 0.5, makes day 1 play exactly on price and recipe.</Note>
       </>
     )
   },
@@ -664,6 +732,7 @@ const averageExpense: Doc = {
           items={[
             'Half of them buy at exactly what they would pay; more buy below it, fewer above.',
             `Under ${money(cheapFloor(p))} the cup looks suspiciously cheap, and fewer buy the cheaper it gets (see “Price tolerance”).`,
+            'The chances below are at a neutral popularity of 50%; popularity scales them up or down (see “Starting popularity”).',
             'It must fall inside the cup price range.',
           ]}
         />
@@ -1034,6 +1103,7 @@ export const DOCS = {
   customers_section: customersSection,
   spawn_per_hour: spawnPerHour,
   quality_swing: qualitySwing,
+  starting_popularity: startingPopularity,
   average_expense: averageExpense,
   tolerance_price: priceToleranceDoc(),
   tolerance_ice: ingredientToleranceDoc('ice'),
