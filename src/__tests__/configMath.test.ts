@@ -2,8 +2,10 @@ import { describe, expect, it } from 'vitest'
 import {
   applyPopularity,
   asymmetricKernel,
+  breakEvenUnits,
   buyDecision,
   buyProbability,
+  cupsAffordable,
   hazard,
   kernel,
   largestDiff,
@@ -122,5 +124,23 @@ describe('configMath', () => {
     expect(Object.values(odds).reduce((a, b) => a + b, 0)).toBeCloseTo(1)
     expect(odds.sunny).toBeCloseTo(15 / 40, 2)
     expect(odds.snowy).toBeCloseTo(5 / 40, 2)
+  })
+})
+
+describe('whole counts from money (float noise)', () => {
+  it('counts the cups starting cash buys even when the cost per cup carries float noise', () => {
+    // 0.1 + 0.2 is 0.30000000000000004, so $3 ÷ that is 9.999… and a bare floor says 9.
+    expect(cupsAffordable(3, 0.1 + 0.2)).toBe(10)
+    expect(cupsAffordable(3.1, 0.3)).toBe(10)
+  })
+
+  it('does not round a break-even count up past a whole number', () => {
+    const unit = { unit_cost: 0.03, packs: [], fresh_days: 3, max_days: 7, never_perishes: false }
+    // 300 units at 5% off cost $8.55 and a unit from the pack of 100 costs $0.03: exactly 285 units,
+    // but 8.55 ÷ 0.03 is 285.00000000000006 and a bare ceil says 286.
+    const big = packPrice(unit, { size: 300, discount: 0.05 })
+    const small = packPrice(unit, { size: 100, discount: 0 }) / 100
+    expect(breakEvenUnits(big, small)).toBe(285)
+    expect(breakEvenUnits(8.56, small)).toBe(286)
   })
 })

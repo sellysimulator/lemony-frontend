@@ -10,7 +10,7 @@
  * the start-up path; `signInWithPopup` passes
  * `browserPopupRedirectResolver` itself. [HARD-WON, game_stack.md §1]
  */
-import { initializeApp } from 'firebase/app'
+import { initializeApp, type FirebaseApp } from 'firebase/app'
 import {
   browserLocalPersistence,
   GoogleAuthProvider,
@@ -31,8 +31,10 @@ const firebaseConfig = {
 
 export const firebaseConfigured = Boolean(firebaseConfig.apiKey && firebaseConfig.projectId)
 
-export const auth: Auth | null = firebaseConfigured
-  ? initializeAuth(initializeApp(firebaseConfig), {
+export const app: FirebaseApp | null = firebaseConfigured ? initializeApp(firebaseConfig) : null
+
+export const auth: Auth | null = app
+  ? initializeAuth(app, {
       persistence: [indexedDBLocalPersistence, browserLocalPersistence],
     })
   : null

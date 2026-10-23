@@ -68,6 +68,11 @@ other template pieces needs the user's explicit OK.
   `alerts` is the toast queue.
 - **Sequencing.** Every server event carries a per-game `seq`; `applySequenced` drops
   anything not newer than `lastSeq`. `game_created` resets it.
+- **History arrives once.** Only a full `game_state` (`full` true or missing) carries
+  `days`, `last_day_events` and `summary`. `day_result` and the `game_state` after
+  `ack_day` are daily: the store keeps the history it holds, appends `day_result.record`
+  (skipping a day it already has) and takes the summary from `game_finished`. A daily
+  event for a game the client doesn't hold sends `request_state` instead.
 - **Client-side maths is display only.** `src/game/timeline.ts` (pure playback positions
   from events + sim clock), `costing.ts` (plan preview of FIFO costing), `configMath.ts`
   (config-help illustrations). None of it decides an outcome.
@@ -91,7 +96,10 @@ user's job — don't run them unless asked.
 
 ## Contracts that span both repos
 
-Change these together, backend first, and ship both halves in the same window:
+Change these together, backend first, and ship both halves in the same window. The
+exception: when the backend stops sending a field this app reads (as when round events
+dropped the history), ship the frontend first, or an open tab on the old frontend crashes
+until it is reloaded.
 
 | What | Frontend | Backend |
 |---|---|---|
@@ -103,6 +111,7 @@ Change these together, backend first, and ship both halves in the same window:
 | Pack price, purchase cost | `src/game/configMath.ts` `packPrice`, `src/game/costing.ts` | `core/config_model.py`, `core/engine.py` |
 | Demand/perish maths | `src/game/configMath.ts` | `core/demand.py`, `people.py`, `ingredients.py`, `weather.py` |
 | Vocabulary constants | `src/types/game.ts` | `core/defaults.py` |
+| Pack limits | `src/components/config/PacksEditor.tsx` `MAX_PACKS`, `MAX_SIZE`, `MAX_DISCOUNT_PCT` (hand-mirrored) | `core/limits.py` `MAX_PACKS`, `MAX_PACK_SIZE`, `MAX_PACK_DISCOUNT` |
 
 **Rounding rule:** `Number((v*100).toPrecision(12))`, round half away from zero, `/100`,
 `+0` to drop `-0`. `utils/format.ts` `money()` rounds before display so the client never
@@ -121,7 +130,10 @@ a suspected bug as an explicit before/after proposal instead of rewriting it.
   try/catch (`guest_id`, `lemony_game_id`, `lemony_session_token`, `board_view`).
 - Styling: Tailwind v4 with tokens in `@theme` in `src/index.css` (`surface*`, `ink*`,
   `brand*`, `border`, `leaf`, `good`, `bad`, `warn`; Nunito). No tailwind config file, light
-  theme only, reduced motion honoured. Use token classes, not raw colours.
+  theme only, reduced motion honoured. Use token classes, not raw colours. Flat fills only,
+  no gradients (`noGradient.test.ts` fails on one), and colour is never the only signal.
+  The 2D board's weather skies are the one exception to tokens: raw palette colours, with
+  the weather also named in the corner chip.
 - Charts: register parts and palettes in `charts/chartSetup.ts`; every chart goes in
   `ChartBox` with a `table={head, rows}` "Show table" fallback (accessibility).
 
@@ -143,8 +155,10 @@ a suspected bug as an explicit before/after proposal instead of rewriting it.
   `detailed_stand.glb`.
 - **`DayView`'s rAF effect disables exhaustive-deps on purpose** (restarts only when the
   watched day changes).
-- **Test coverage** is pure logic only (money, costing, configMath, timeline, sceneModel,
-  gameStore). Components, socket handlers and `api/` are untested.
+- **Test coverage** is mostly pure logic (money, costing, configMath, timeline, sceneModel,
+  gameStore), plus a few component and handler tests (`fields`, `PlanDay`, `playAgain`,
+  `socketHandlers`) and source scans (`noGradient` fails on any CSS gradient,
+  `firebaseFile` pins the `firebase.ts` exports). Most components and `api/` are untested.
 
 ## Deploy
 

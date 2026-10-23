@@ -164,3 +164,17 @@ export function steps(r: Range, step = 1, cap = 60): number[] {
 export function packPrice(cfg: IngredientConfig, pack: PackOption): number {
   return roundCents(pack.size * cfg.unit_cost * (1 - pack.discount))
 }
+
+// A whole count from a quotient of money values is nudged by 1e-9 before floor/ceil:
+// 3 ÷ (0.1 + 0.2) is 9.999… and 8.55 ÷ 0.03 is 285.00000000000006.
+const NOISE = 1e-9
+
+/** How many whole cups `cash` buys at `costPerCup` each. */
+export function cupsAffordable(cash: number, costPerCup: number): number {
+  return Math.floor(cash / costPerCup + NOISE)
+}
+
+/** Units of a big pack you must use for it to beat buying them at `smallUnitPrice` each. */
+export function breakEvenUnits(bigPackPrice: number, smallUnitPrice: number): number {
+  return Math.ceil(bigPackPrice / smallUnitPrice - NOISE)
+}

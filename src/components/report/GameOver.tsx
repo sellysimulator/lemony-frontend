@@ -38,7 +38,8 @@ export default function GameOver(props: { summary: GameSummary | null; publicId:
       <div className="flex flex-wrap items-center gap-3">
         <h1 className="flex items-center gap-2 text-3xl font-extrabold"><Trophy aria-hidden className="size-8 text-brand-strong" /> Final results — {props.summary.days_played} days</h1>
         <div className="ml-auto flex gap-2">
-          <Link to="/new" className="rounded-xl bg-brand px-5 py-2 font-bold">
+          {/* A new game, starting from this game's settings. */}
+          <Link to="/new" state={props.summary.config ? { config: props.summary.config } : null} className="rounded-xl bg-brand px-5 py-2 font-bold">
             Play again
           </Link>
           {props.signedIn && props.publicId ? (

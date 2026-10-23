@@ -21,9 +21,11 @@ import {
 import { money, pct, REASON_TEXT } from '../../../utils/format'
 import {
   applyPopularity,
+  breakEvenUnits,
   buyDecision,
   buyProbability,
   cheapFloor,
+  cupsAffordable,
   expectedSpawn,
   hazard,
   ingredientScore,
@@ -241,7 +243,7 @@ const startingCash: Doc = {
           {money(config.starting_cash)} covers that <strong>{basket > 0 ? (config.starting_cash / basket).toFixed(1) : '∞'}×</strong>.
           <br />
           At list prices, a mid-range recipe ({plan.recipe.ice} ice, {plan.recipe.sugar} sugar, {plan.recipe.lemons} lemons, plus a cup) costs{' '}
-          <strong>{money(cup)}</strong> per cup, so your starting cash is worth about <strong>{cup > 0 ? Math.floor(config.starting_cash / cup) : '∞'} cups</strong>{' '}
+          <strong>{money(cup)}</strong> per cup, so your starting cash is worth about <strong>{cup > 0 ? cupsAffordable(config.starting_cash, cup) : '∞'} cups</strong>{' '}
           of ingredients. Pack discounts stretch that further.
         </Example>
       </>
@@ -509,7 +511,7 @@ const weatherRange: Doc = {
           With these ranges, a day is {weather} with a chance of <strong>{pct(odds[weather])}</strong>, which is about{' '}
           <strong>{(odds[weather] * config.num_days).toFixed(1)}</strong> of your {config.num_days} days.
         </Example>
-        <Note>The ranges together must cover the whole temperature range with no gaps, or the configuration is invalid.</Note>
+        <Note>Each range must stay within −30°C to 60°C, and together the ranges must cover the whole temperature range with no gaps, or the configuration is invalid.</Note>
       </>
     )
   },
@@ -973,7 +975,7 @@ const packs: Doc = {
     const small = smallestPack(cfg)
     const big = cfg.packs.reduce((a, b) => (b.size > a.size ? b : a))
     const smallUnit = packPrice(cfg, small) / small.size
-    const breakEven = smallUnit > 0 ? Math.ceil(packPrice(cfg, big) / smallUnit) : 0
+    const breakEven = smallUnit > 0 ? breakEvenUnits(packPrice(cfg, big), smallUnit) : 0
     return (
       <>
         <P>

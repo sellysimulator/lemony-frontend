@@ -187,6 +187,8 @@ export default function PlanDay(props: { state: GameState }): ReactElement {
                   if (e.target.value.trim() !== '' && Number.isFinite(n)) setPrice(roundCents(n))
                 }}
                 onBlur={() => setPriceDraft(null)}
+                // A wheel would step the focused value; see NumberField in config/fields.tsx.
+                onWheel={(e) => e.currentTarget.blur()}
                 className="mt-1 w-full rounded-lg border border-border px-2 py-1.5 tabular-nums"
               />
               {!priceValid ? (

@@ -53,6 +53,9 @@ export function NumberField(props: {
             if (e.target.value.trim() !== '' && Number.isFinite(n)) props.onChange(n)
           }}
           onBlur={() => setDraft(null)}
+          // A wheel over a focused number input steps its value in Chrome and Edge. React's
+          // wheel listeners are passive, so preventDefault() cannot stop it: let go of focus.
+          onWheel={(e) => e.currentTarget.blur()}
           className="min-h-11 w-full rounded-lg border border-stone-300 bg-white px-3 py-2 tabular-nums focus:border-brand-strong focus:ring-2 focus:ring-brand/60 focus:outline-none"
         />
         {props.suffix ? <span className="text-sm font-semibold text-ink-muted">{props.suffix}</span> : null}

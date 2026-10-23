@@ -1,6 +1,6 @@
 import { useEffect, useId, useState, type ReactElement, type ReactNode } from 'react'
 import { CalendarDays, CircleCheck, CircleX, Clock, CloudSun, CupSoda, Info, LoaderCircle, Package, RotateCcw, Users } from 'lucide-react'
-import { useNavigate } from 'react-router-dom'
+import { useLocation, useNavigate } from 'react-router-dom'
 import Layout from '../components/shared/Layout'
 import LoadingSpinner from '../components/shared/LoadingSpinner'
 import { CheckboxField, NumberField, RangeField, Section, SubCard } from '../components/config/fields'
@@ -95,6 +95,9 @@ function SelectField(props: { label: string; value: string; options: readonly st
 
 function ConfigPage(): ReactElement {
   const navigate = useNavigate()
+  const location = useLocation()
+  // "Play again" hands over the settings of the game just played; otherwise start from the defaults.
+  const [handed] = useState(() => (location.state as { config?: GameConfig } | null)?.config ?? null)
   const [defaults, setDefaults] = useState<GameConfig | null>(null)
   const [config, setConfig] = useState<GameConfig | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
@@ -114,10 +117,10 @@ function ConfigPage(): ReactElement {
     getConfigDefaults()
       .then((d) => {
         setDefaults(d.config)
-        setConfig(structuredClone(d.config))
+        setConfig(structuredClone(handed ?? d.config))
       })
       .catch((err) => setLoadError(errorMessage(err, 'Could not load the default configuration.')))
-  }, [])
+  }, [handed])
 
   // The server owns the rules: validate against it, never re-implement them here.
   useEffect(() => {

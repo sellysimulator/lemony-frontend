@@ -6,10 +6,14 @@
  * Sequencing: every server event carries a per-game `seq`; an event not newer
  * than the last applied one is dropped (a stale emit after a resync).
  * `game_created` starts a new game and resets the counter.
+ *
+ * History: only full states carry `days`. Round events send a daily state, and
+ * the store keeps the days it holds, appending each `day_result.record`.
  */
 import { create } from 'zustand'
 import type {
   CustomerEvent,
+  DailyGameState,
   DayRecord,
   DayResultEvent,
   GameState,
@@ -46,6 +50,7 @@ interface GameStoreState {
 interface GameStoreActions {
   handleGameCreated(seq: number, gameId: string): void
   handleGameState(seq: number, state: GameState): void
+  handleDailyState(seq: number, state: DailyGameState): void
   handleDayResult(data: DayResultEvent): void
   handleGameFinished(seq: number, summary: GameSummary): void
   handleGamePersisted(seq: number, publicId: string): void
@@ -84,11 +89,39 @@ export function viewForState(state: GameState): { view: PlayView; watch: Watched
   return { view: 'over', watch: null }
 }
 
+/** Appends `record` unless that day (or a later one) is already held, so a replayed result never duplicates a day. */
+function appendDay(days: DayRecord[], record: DayRecord): DayRecord[] {
+  const last = days[days.length - 1]
+  return last && last.day >= record.day ? days : [...days, record]
+}
+
+/** The history this client holds for `gameId`, empty if it holds another game or none. */
+function heldHistory(s: GameStoreState, gameId: string): Pick<GameState, 'days' | 'last_day_events' | 'summary'> {
+  const held = s.state?.game_id === gameId ? s.state : null
+  return { days: held?.days ?? [], last_day_events: held?.last_day_events ?? [], summary: held?.summary ?? null }
+}
+
 export const useGameStore = create<GameStoreState & GameStoreActions>((set, get) => {
   function applySequenced(seq: number, update: (s: GameStoreState) => Partial<GameStoreState>): void {
     const current = get()
     if (typeof seq !== 'number' || !(seq > current.lastSeq)) return
     set({ ...update(current), lastSeq: seq })
+  }
+
+  function withState(s: GameStoreState, state: GameState): Partial<GameStoreState> {
+    const sameGame = s.gameId === state.game_id && s.state !== null
+    // Keep a playback or report in progress when the state merely refreshes.
+    const keep = sameGame && state.phase !== 'planning' && (s.view === 'day' || s.view === 'report') && s.watch !== null
+    const next = keep ? { view: s.view, watch: s.watch } : viewForState(state)
+    return {
+      gameId: state.game_id,
+      state,
+      resume: 'active',
+      publicId: state.public_id,
+      summary: state.summary ?? s.summary,
+      submitting: false,
+      ...next,
+    }
   }
 
   return {
@@ -99,31 +132,28 @@ export const useGameStore = create<GameStoreState & GameStoreActions>((set, get)
     },
 
     handleGameState(seq, state) {
+      applySequenced(seq, (s) => withState(s, state))
+    },
+
+    handleDailyState(seq, daily) {
       applySequenced(seq, (s) => {
-        const sameGame = s.gameId === state.game_id && s.state !== null
-        // Keep a playback or report in progress when the state merely refreshes.
-        const keep =
-          sameGame && state.phase !== 'planning' && (s.view === 'day' || s.view === 'report') && s.watch !== null
-        const next = keep ? { view: s.view, watch: s.watch } : viewForState(state)
-        return {
-          gameId: state.game_id,
-          state,
-          resume: 'active',
-          publicId: state.public_id,
-          summary: state.summary ?? s.summary,
-          submitting: false,
-          ...next,
-        }
+        const held = heldHistory(s, daily.game_id)
+        // Acknowledging a day clears its events; a refused ack leaves the day being watched.
+        const lastDayEvents = daily.phase === 'planning' ? [] : held.last_day_events
+        return withState(s, { ...daily, ...held, last_day_events: lastDayEvents })
       })
     },
 
     handleDayResult(data) {
-      applySequenced(data.seq, () => ({
-        state: data.state,
-        submitting: false,
-        view: 'day',
-        watch: { day: data.day, record: data.record, events: data.events },
-      }))
+      applySequenced(data.seq, (s) => {
+        const held = heldHistory(s, data.state.game_id)
+        return {
+          state: { ...data.state, ...held, days: appendDay(held.days, data.record), last_day_events: data.events },
+          submitting: false,
+          view: 'day',
+          watch: { day: data.day, record: data.record, events: data.events },
+        }
+      })
     },
 
     handleGameFinished(seq, summary) {

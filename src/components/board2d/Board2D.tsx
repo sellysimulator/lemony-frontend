@@ -7,12 +7,17 @@ import { PERSON_COLOR, REASON_TEXT } from '../../utils/format'
 import { WeatherIcon } from '../shared/icons'
 import type { Weather } from '../../types/game'
 
-const SKY: Record<Weather, [string, string]> = {
-  sunny: ['#7dd3fc', '#e0f2fe'],
-  cloudy: ['#94a3b8', '#e2e8f0'],
-  rainy: ['#64748b', '#cbd5e1'],
-  snowy: ['#cbd5e1', '#f8fafc'],
+// Flat fills only: one sky colour per weather. The weather is also named in the corner
+// chip, so the colour is never the only signal.
+const SKY: Record<Weather, string> = {
+  sunny: 'bg-sky-200',
+  cloudy: 'bg-slate-200',
+  rainy: 'bg-slate-400',
+  snowy: 'bg-slate-300',
 }
+
+/** The awning is drawn as alternating flat stripes. */
+const AWNING_STRIPES = 10
 
 const SIZE = { Child: 30, Teenager: 36, Adult: 40, Senior: 38 } as const
 
@@ -78,14 +83,13 @@ function Precipitation(props: { weather: Weather }): ReactElement | null {
 export default function Board2D(props: BoardProps): ReactElement {
   const clock = usePlayback((s) => s.clock)
   const actors = actorsAt(props.events, clock)
-  const [top, bottom] = SKY[props.weather]
   const f = dayFraction(clock) // 0.375 = 9am, 0.75 = 6pm
   const sunX = Math.min(95, Math.max(5, ((f - 0.25) / 0.5) * 100))
   const sunY = 8 + Math.abs(f - 0.5) * 120
   const dusk = Math.max(0, (f - 0.7) * 3)
 
   return (
-    <div className="relative aspect-[16/8] w-full overflow-hidden rounded-2xl border border-border shadow-inner" style={{ background: `linear-gradient(${top}, ${bottom})` }}>
+    <div className={`relative aspect-[16/8] w-full overflow-hidden rounded-2xl border border-border shadow-inner ${SKY[props.weather]}`}>
       <div className="absolute transition-all" style={{ left: `${sunX}%`, top: `${sunY}%` }} aria-hidden>
         {props.weather === 'sunny' ? (
           <Sun className="size-12 fill-yellow-300 text-yellow-500" />
@@ -93,14 +97,19 @@ export default function Board2D(props: BoardProps): ReactElement {
           <WeatherIcon weather={props.weather} className="size-12 text-slate-600" />
         )}
       </div>
-      <div className="absolute inset-x-0 bottom-0 h-[30%] bg-gradient-to-b from-lime-300 to-lime-500" />
+      <div className="absolute inset-x-0 bottom-0 h-[30%] bg-leaf" />
       <div className="absolute inset-x-0 bottom-[4%] h-[16%] bg-stone-300" />
       <div className="absolute inset-x-0 bottom-[12%] h-0.5 border-t-2 border-dashed border-white/80" />
       <Precipitation weather={props.weather} />
 
       <div className="absolute bottom-[24%] left-1/2 z-[5] -translate-x-1/2 text-center" aria-label="Your lemonade stand">
-        <div className="mx-auto w-40 rounded-t-lg border-4 border-yellow-600 bg-[repeating-linear-gradient(90deg,#fde047_0_16px,#fff_16px_32px)] py-1 text-sm font-extrabold text-yellow-900 shadow">
-          LEMONADE {props.price.toFixed(2)}
+        <div className="relative mx-auto w-40 overflow-hidden rounded-t-lg border-4 border-yellow-600 py-1 text-sm font-extrabold text-yellow-900 shadow">
+          <div className="absolute inset-0 flex" aria-hidden>
+            {Array.from({ length: AWNING_STRIPES }, (_, i) => (
+              <span key={i} className={`flex-1 ${i % 2 ? 'bg-white' : 'bg-yellow-300'}`} />
+            ))}
+          </div>
+          <span className="relative">LEMONADE {props.price.toFixed(2)}</span>
         </div>
         <div className="mx-auto h-14 w-36 rounded-b-md border-4 border-t-0 border-yellow-700 bg-amber-200 flex items-center justify-center gap-2 text-yellow-800" aria-hidden>
           <Citrus className="size-8" strokeWidth={2.25} />

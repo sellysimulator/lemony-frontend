@@ -176,16 +176,24 @@ export interface DayPlanPayload {
   recipe: Record<RecipeIngredient, number>
 }
 
+/**
+ * The state as round events send it (`day_result`, `game_state` after `ack_day`): the history
+ * is left out so a day's events do not grow with the game. The client keeps the days it holds,
+ * appends `day_result.record`, and takes the summary from `game_finished`.
+ */
+export type DailyGameState = Omit<GameState, 'days' | 'last_day_events' | 'summary'>
+
 // ---- socket payloads (server -> client)
 export interface GameCreatedEvent { seq: number; game_id: string; session_token: string }
-export interface GameStateEvent { seq: number; state: GameState }
+/** `full` states (start, resync, request_state) carry the history; daily ones (after ack_day) do not. */
+export type GameStateEvent = { seq: number; full: true; state: GameState } | { seq: number; full: false; state: DailyGameState }
 export interface DayResultEvent {
   seq: number
   day: number
   record: DayRecord
   events: CustomerEvent[]
   duplicate: boolean
-  state: GameState
+  state: DailyGameState
 }
 export interface GameFinishedEvent { seq: number; summary: GameSummary }
 export interface GamePersistedEvent { seq: number; public_id: string }

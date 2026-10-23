@@ -37,7 +37,7 @@ function WelcomeScreen(): ReactElement {
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-gradient-to-b from-sky-200 via-amber-50 to-surface px-4">
+    <div className="flex min-h-screen items-center justify-center bg-surface px-4">
       <div className="w-full max-w-md rounded-3xl border border-border bg-surface-raised p-8 text-center shadow-xl">
         <Citrus aria-hidden className="mx-auto size-20 text-brand-strong" strokeWidth={2} />
         <h1 className="mt-2 text-4xl font-extrabold tracking-tight">Lemony</h1>

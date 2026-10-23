@@ -46,13 +46,27 @@ socket.on('game_created', (data: GameCreatedEvent) => {
   useGameStore.getState().handleGameCreated(data.seq, data.game_id)
 })
 
+/**
+ * A daily state or a day result only extends the history this client holds. If it
+ * holds another game or none, it asks for the full state instead of guessing.
+ */
+function holdsGame(gameId: string): boolean {
+  return useGameStore.getState().state?.game_id === gameId
+}
+
 socket.on('game_state', (data: GameStateEvent) => {
   storeGame(data.state.game_id, null)
+  if (data.full === false) {
+    if (holdsGame(data.state.game_id)) useGameStore.getState().handleDailyState(data.seq, data.state)
+    else socket.emit('request_state', { game_id: data.state.game_id })
+    return
+  }
   useGameStore.getState().handleGameState(data.seq, data.state)
 })
 
 socket.on('day_result', (data: DayResultEvent) => {
-  useGameStore.getState().handleDayResult(data)
+  if (holdsGame(data.state.game_id)) useGameStore.getState().handleDayResult(data)
+  else socket.emit('request_state', { game_id: data.state.game_id })
 })
 
 socket.on('game_finished', (data: GameFinishedEvent) => {
