@@ -67,7 +67,10 @@ other template pieces needs the user's explicit OK.
   handlers; UI writes presentational flags only. `playback` holds the day-playback clock.
   `alerts` is the toast queue.
 - **Sequencing.** Every server event carries a per-game `seq`; `applySequenced` drops
-  anything not newer than `lastSeq`. `game_created` resets it.
+  anything not newer than `lastSeq`. `game_created` resets it. The one exception is
+  `plan_preview`, a request-scoped reply: its listener bypasses the gate and never touches
+  `lastSeq`; the store keeps only the latest `request_id`'s reply, and a refusal rides
+  inside it (`error`) instead of going through the `error` listener.
 - **History arrives once.** Only a full `game_state` (`full` true or missing) carries
   `days`, `last_day_events` and `summary`. `day_result` and the `game_state` after
   `ack_day` are daily: the store keeps the history it holds, appends `day_result.record`
@@ -75,7 +78,9 @@ other template pieces needs the user's explicit OK.
   event for a game the client doesn't hold sends `request_state` instead.
 - **Client-side maths is display only.** `src/game/timeline.ts` (pure playback positions
   from events + sim clock), `costing.ts` (plan preview of FIFO costing), `configMath.ts`
-  (config-help illustrations). None of it decides an outcome.
+  (config-help illustrations). None of it decides an outcome. The plan screen's what-if
+  curve comes from the server (`preview_plan` → `plan_preview`); the client draws it and
+  computes nothing.
 - **Backend wake-up.** `BackendStatusContext` polls `src/api/health.ts` (requires body
   `{status:"ok"}` so an HTML 200 doesn't count) and `BackendWakeUp` covers Render cold
   starts.
@@ -104,6 +109,8 @@ until it is reloaded.
 | What | Frontend | Backend |
 |---|---|---|
 | Socket events & payloads | `src/api/socketHandlers.ts`, `src/types/game.ts` | `app/sockets/handlers/game.py`, `connection.py` |
+| Plan preview (`preview_plan` → `plan_preview`) | `src/api/socketHandlers.ts`, `src/types/game.ts`, `src/store/gameStore.ts`, `src/components/plan/` | `app/core/preview.py`, `app/sockets/handlers/game.py` |
+| Price grid step | `src/components/plan/PlanDay.tsx` price input `step` (0.05) | `core/preview.py` `PRICE_STEP` (hand-mirrored) |
 | REST shapes | `src/api/rest.ts` | `app/schemas/user.py`, `app/api/v1/*` |
 | Engine output (`GameState`, `DayRecord`, summary) | `src/types/game.ts` (hand-written, no codegen) | `app/core/engine.py` |
 | Money rounding | `src/utils/money.ts` `roundCents` | `app/core/money.py` `round_cents` |
@@ -134,8 +141,16 @@ a suspected bug as an explicit before/after proposal instead of rewriting it.
   no gradients (`noGradient.test.ts` fails on one), and colour is never the only signal.
   The 2D board's weather skies are the one exception to tokens: raw palette colours, with
   the weather also named in the corner chip.
-- Charts: register parts and palettes in `charts/chartSetup.ts`; every chart goes in
-  `ChartBox` with a `table={head, rows}` "Show table" fallback (accessibility).
+- Charts: the kit lives in `components/charts/`. `chartSetup.ts` has `registerCharts()`
+  (no animation under reduced motion), the palettes, `barStyle`/`lineStyle` and
+  `baseOptions({xLabel, yLabel, …})` with the canvas legend off. `ChartBox` takes a title,
+  `caption`, `ariaLabel`, `controls`, `legend` and a `table` (a node, or `{head, rows}` via
+  `tableFromRows`), and has an error boundary. `Legend` is the DOM legend (swatches, optional
+  `role="switch"` toggles). `plugins/crosshairSync` shares one hover/keyboard index across a
+  `createCrosshairGroup()`; `plugins/referenceRule` draws labelled horizontal rules from
+  `options.plugins.referenceRule`, never as a dataset. Every chart has a single y-axis, an
+  x-axis title and a table view (accessibility). End-screen charts are in `charts/endgame/`
+  (builders in `config.ts`); the plan's what-if chart is `plan/WhatIfChart.tsx`.
 
 ## Gotchas
 
@@ -155,9 +170,10 @@ a suspected bug as an explicit before/after proposal instead of rewriting it.
   `detailed_stand.glb`.
 - **`DayView`'s rAF effect disables exhaustive-deps on purpose** (restarts only when the
   watched day changes).
-- **Test coverage** is mostly pure logic (money, costing, configMath, timeline, sceneModel,
-  gameStore), plus a few component and handler tests (`fields`, `PlanDay`, `playAgain`,
-  `socketHandlers`) and source scans (`noGradient` fails on any CSS gradient,
+- **Test coverage** (18 files, 166 tests) is mostly pure logic (money, costing, configMath,
+  timeline, sceneModel, gameStore, openDayReport, planPreview), plus component and handler
+  tests (`fields`, `PlanDay`, `playAgain`, `socketHandlers`, `chartKit`, `endgameCharts`,
+  `DayReport`, `WhatIfChart`) and source scans (`noGradient` fails on any CSS gradient,
   `firebaseFile` pins the `firebase.ts` exports). Most components and `api/` are untested.
 
 ## Deploy
