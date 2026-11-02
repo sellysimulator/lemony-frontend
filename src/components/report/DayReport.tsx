@@ -2,7 +2,7 @@ import type { ReactElement } from 'react'
 import { Bar } from 'react-chartjs-2'
 import Card, { Stat } from '../shared/Card'
 import ChartBox from '../charts/ChartBox'
-import { barStyle, baseOptions, OUTCOME_SERIES } from '../charts/chartSetup'
+import { barStyle, baseOptions, OUTCOME_SERIES, PERSON_SERIES, SINGLE } from '../charts/chartSetup'
 import { acknowledgeDay } from '../../api/socketHandlers'
 import { useGameStore, type WatchedDay } from '../../store/gameStore'
 import { INGREDIENTS, PERSON_TYPES, type GameState } from '../../types/game'
@@ -10,11 +10,27 @@ import { ArrowDown, ArrowUp, Trophy } from 'lucide-react'
 import { money, pct, REASON_TEXT } from '../../utils/format'
 import { IngredientIcon, PersonIcon, WeatherIcon } from '../shared/icons'
 
+/** One horizontal bar row: label, a bar sized against `max`, and the figures as text. */
+function BarRow(props: { label: ReactElement | string; value: number; max: number; color: string; figure: ReactElement | string }): ReactElement {
+  const width = props.max > 0 ? (props.value / props.max) * 100 : 0
+  return (
+    <li className="flex items-center gap-2">
+      <span className="w-36 shrink-0 truncate">{props.label}</span>
+      <span className="h-4 min-w-0 flex-1 rounded-sm bg-surface-sunken">
+        <span className="block h-full rounded-sm" style={{ width: `${width}%`, backgroundColor: props.color }} />
+      </span>
+      <span className="w-20 shrink-0 text-right font-semibold tabular-nums">{props.figure}</span>
+    </li>
+  )
+}
+
 export default function DayReport(props: { watch: WatchedDay; state: GameState }): ReactElement {
   const { record } = props.watch
   const setView = useGameStore((s) => s.setView)
   const finished = props.state.phase === 'finished'
   const reasons = Object.entries(record.refusal_reasons).sort((a, b) => b[1] - a[1])
+  const maxReason = Math.max(0, ...reasons.map(([, n]) => n))
+  const maxVisitors = Math.max(0, ...PERSON_TYPES.map((t) => record.by_type[t].visitors))
   const perishedAny = INGREDIENTS.some((n) => record.perished[n] > 0)
   // Popularity applied today, and what the next day starts with (later days carry their own).
   const nextPopularity = props.state.days.find((d) => d.day === record.day + 1)?.popularity ?? props.state.popularity
@@ -28,9 +44,11 @@ export default function DayReport(props: { watch: WatchedDay; state: GameState }
           <WeatherIcon weather={record.weather} /> {record.weather} · {record.temperature}°C
         </span>
         <div className="ml-auto flex gap-2">
-          <button type="button" onClick={() => setView('day')} className="rounded-xl border border-border px-4 py-2 text-sm">
-            Replay day
-          </button>
+          {props.watch.events.length > 0 ? (
+            <button type="button" onClick={() => setView('day')} className="rounded-xl border border-border px-4 py-2 text-sm">
+              Replay day
+            </button>
+          ) : null}
           {finished ? (
             <button type="button" onClick={() => setView('over')} className="inline-flex items-center gap-2 rounded-xl bg-brand px-5 py-2 font-bold">
               See final results <Trophy aria-hidden className="size-4" />
@@ -121,42 +139,36 @@ export default function DayReport(props: { watch: WatchedDay; state: GameState }
 
       <div className="grid gap-5 lg:grid-cols-2">
         <Card title="By customer type">
-          <table className="w-full text-sm tabular-nums">
-            <thead>
-              <tr className="text-left text-ink-muted">
-                <th className="py-1">Type</th>
-                <th>Visitors</th>
-                <th>Bought</th>
-                <th>Sold out</th>
-                <th>Success</th>
-              </tr>
-            </thead>
-            <tbody>
-              {PERSON_TYPES.map((t) => {
-                const s = record.by_type[t]
-                return (
-                  <tr key={t} className="border-t border-border">
-                    <td className="py-1">
+          <ul aria-label="Visitors by customer type" className="space-y-2 text-sm">
+            {PERSON_TYPES.map((t) => {
+              const st = record.by_type[t]
+              return (
+                <BarRow
+                  key={t}
+                  label={
+                    <>
                       <PersonIcon type={t} /> {t}
-                    </td>
-                    <td>{s.visitors}</td>
-                    <td>{s.buyers}</td>
-                    <td>{s.sold_out}</td>
-                    <td>{s.visitors ? pct(s.buyers / s.visitors) : '—'}</td>
-                  </tr>
-                )
-              })}
-            </tbody>
-          </table>
+                    </>
+                  }
+                  value={st.visitors}
+                  max={maxVisitors}
+                  color={PERSON_SERIES[t]}
+                  figure={
+                    <>
+                      {st.visitors} <span className="font-normal text-ink-muted">· {st.visitors ? pct(st.buyers / st.visitors) : '—'}</span>
+                    </>
+                  }
+                />
+              )
+            })}
+          </ul>
+          <p className="mt-2 text-xs text-ink-muted">Bar length is visitors; the percentage is the share who bought.</p>
         </Card>
         <Card title="Why people said no">
           {reasons.length ? (
-            <ul className="space-y-1 text-sm">
+            <ul aria-label="Why people said no" className="space-y-2 text-sm">
               {reasons.map(([reason, n]) => (
-                <li key={reason} className="flex">
-                  <span>{REASON_TEXT[reason] ?? reason}</span>
-                  <span className="ml-auto font-semibold tabular-nums">{n}</span>
-                </li>
+                <BarRow key={reason} label={REASON_TEXT[reason] ?? reason} value={n} max={maxReason} color={SINGLE} figure={String(n)} />
               ))}
             </ul>
           ) : (
