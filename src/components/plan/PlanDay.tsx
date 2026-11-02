@@ -1,6 +1,6 @@
-import { useMemo, useState, type ReactElement } from 'react'
+import { useEffect, useMemo, useState, type ReactElement } from 'react'
 import Card, { Stat } from '../shared/Card'
-import { submitDay } from '../../api/socketHandlers'
+import { previewPlan, submitDay } from '../../api/socketHandlers'
 import { useGameStore } from '../../store/gameStore'
 import {
   INGREDIENTS,
@@ -14,7 +14,19 @@ import { money, pct } from '../../utils/format'
 import { roundCents } from '../../utils/money'
 import { IngredientIcon, WeatherIcon } from '../shared/icons'
 import { packPrice } from '../../game/configMath'
+import WhatIfChart from './WhatIfChart'
 import { listCostPerCup, projectedCostPerCup, purchaseCost, type Purchases } from '../../game/costing'
+
+const PREVIEW_DEBOUNCE_MS = 250
+
+function toWire(purchases: Purchases): Partial<Record<IngredientName, Record<string, number>>> {
+  const wire: Partial<Record<IngredientName, Record<string, number>>> = {}
+  for (const name of INGREDIENTS) {
+    const packs = Object.entries(purchases[name]).filter(([, c]) => c > 0)
+    if (packs.length) wire[name] = Object.fromEntries(packs)
+  }
+  return wire
+}
 
 const emptyPurchases = (): Purchases => ({ ice: {}, sugar: {}, lemons: {}, cups: {} })
 
@@ -71,14 +83,15 @@ export default function PlanDay(props: { state: GameState }): ReactElement {
       return next
     })
 
-  const open = () => {
-    const wire: Partial<Record<IngredientName, Record<string, number>>> = {}
-    for (const name of INGREDIENTS) {
-      const packs = Object.entries(purchases[name]).filter(([, c]) => c > 0)
-      if (packs.length) wire[name] = Object.fromEntries(packs)
-    }
-    submitDay({ purchases: wire, price, recipe })
-  }
+  const open = () => submitDay({ purchases: toWire(purchases), price, recipe })
+
+  // The what-if curve comes from the server; ask once the plan has settled. The price is not part of the request.
+  useEffect(() => {
+    const timer = setTimeout(() => previewPlan({ purchases: toWire(purchases), recipe }), PREVIEW_DEBOUNCE_MS)
+    return () => clearTimeout(timer)
+  }, [purchases, recipe])
+  const preview = useGameStore((s) => s.planPreview)
+  const shown = preview.reply && preview.reply.day === state.day && !preview.refused ? preview.reply : null
 
   const weather = state.today
   return (
@@ -206,6 +219,12 @@ export default function PlanDay(props: { state: GameState }): ReactElement {
             <Stat label="Margin per cup" value={`${money(price - costPerCup)} (${costPerCup > 0 ? pct((price - costPerCup) / costPerCup) : '—'})`} tone={price >= costPerCup ? 'good' : 'bad'} />
           </div>
         </Card>
+
+        {shown ? (
+          <Card title="What the price does">
+            <WhatIfChart preview={shown} price={price} waiting={preview.waiting} />
+          </Card>
+        ) : null}
       </div>
 
       <div className="space-y-5">

@@ -198,3 +198,28 @@ export interface DayResultEvent {
 export interface GameFinishedEvent { seq: number; summary: GameSummary }
 export interface GamePersistedEvent { seq: number; public_id: string }
 export interface ServerErrorEvent { code: string; message: string }
+
+/** The what-if curve for the morning plan. Per-price lists are aligned with `prices`. No `seq`: a request-scoped reply. */
+export interface PlanPreviewOk {
+  request_id: string
+  day: number
+  prices: number[]
+  chance: number[]
+  expected_visitors: number
+  expected_cups: number[]
+  expected_margin: number[]
+  cups_possible: number
+  best_price: number
+}
+export interface PlanPreviewRefused {
+  request_id: string
+  day: number | null
+  error: { code: string; message: string }
+}
+export type PlanPreviewEvent = PlanPreviewOk | PlanPreviewRefused
+
+/** What the client sends with `preview_plan`, beside `request_id`, `game_id` and `day`. */
+export interface PlanPreviewRequest {
+  purchases: DayPlanPayload['purchases']
+  recipe: DayPlanPayload['recipe']
+}

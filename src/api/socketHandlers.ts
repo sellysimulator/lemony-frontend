@@ -15,6 +15,8 @@ import type {
   GameFinishedEvent,
   GamePersistedEvent,
   GameStateEvent,
+  PlanPreviewEvent,
+  PlanPreviewRequest,
   ServerErrorEvent,
 } from '../types/game'
 
@@ -87,6 +89,12 @@ socket.on('game_abandoned', () => {
   useGameStore.getState().handleGameAbandoned()
 })
 
+// A request-scoped reply: no seq, so it bypasses the gate and never touches lastSeq. A refusal
+// rides inside it and is never an `error` event, so nothing is toasted.
+socket.on('plan_preview', (data: PlanPreviewEvent) => {
+  useGameStore.getState().handlePlanPreview(data)
+})
+
 socket.on('error', (data: ServerErrorEvent) => {
   const code = data?.code ?? 'SERVER_ERROR'
   const message = data?.message ?? 'Something went wrong.'
@@ -106,6 +114,17 @@ export function submitDay(plan: DayPlanPayload): void {
   if (!gameId || !state) return
   useGameStore.getState().setSubmitting(true)
   socket.emit('submit_day', { game_id: gameId, day: state.day, ...plan })
+}
+
+let previewCount = 0
+
+/** Asks the server for the what-if curve of this plan. Only the latest request's reply is kept. */
+export function previewPlan(plan: PlanPreviewRequest): void {
+  const { gameId, state } = useGameStore.getState()
+  if (!gameId || !state) return
+  const requestId = `p${Date.now().toString(36)}-${++previewCount}`
+  useGameStore.getState().beginPlanPreview(requestId)
+  socket.emit('preview_plan', { request_id: requestId, game_id: gameId, day: state.day, purchases: plan.purchases, recipe: plan.recipe })
 }
 
 export function acknowledgeDay(day: number): void {

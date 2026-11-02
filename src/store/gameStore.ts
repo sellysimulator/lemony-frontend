@@ -18,6 +18,8 @@ import type {
   DayResultEvent,
   GameState,
   GameSummary,
+  PlanPreviewEvent,
+  PlanPreviewOk,
 } from '../types/game'
 
 export type ResumeStatus = 'unknown' | 'none' | 'active'
@@ -31,7 +33,17 @@ export interface WatchedDay {
   events: CustomerEvent[]
 }
 
+/** The what-if reply to the latest `preview_plan` request only; request-scoped, so it never touches `lastSeq`. */
+export interface PlanPreviewSlice {
+  requestId: string | null
+  reply: PlanPreviewOk | null
+  /** The server refused the latest request; the plan's own validation explains why. */
+  refused: boolean
+  waiting: boolean
+}
+
 interface GameStoreState {
+  planPreview: PlanPreviewSlice
   lastSeq: number
   gameId: string | null
   state: GameState | null
@@ -57,6 +69,9 @@ interface GameStoreActions {
   handleNoActiveGame(): void
   handleGameAbandoned(): void
   handleError(code: string, message: string): void
+  /** Makes `requestId` the only request whose reply is kept; the previous reply stays until it answers. */
+  beginPlanPreview(requestId: string): void
+  handlePlanPreview(event: PlanPreviewEvent): void
   setView(view: PlayView): void
   /** Opens the report of a day already held; no events are kept for past days, so there is no replay. A day not held changes nothing. */
   openDayReport(day: number): void
@@ -66,6 +81,7 @@ interface GameStoreActions {
 }
 
 const initial: GameStoreState = {
+  planPreview: { requestId: null, reply: null, refused: false, waiting: false },
   lastSeq: 0,
   gameId: null,
   state: null,
@@ -179,6 +195,16 @@ export const useGameStore = create<GameStoreState & GameStoreActions>((set, get)
 
     handleError(code, message) {
       set({ lastError: { code, message }, submitting: false, creating: false })
+    },
+
+    beginPlanPreview(requestId) {
+      set((s) => ({ planPreview: { ...s.planPreview, requestId, waiting: true } }))
+    },
+
+    handlePlanPreview(event) {
+      if (!event || event.request_id !== get().planPreview.requestId) return
+      if ('error' in event && event.error) set({ planPreview: { requestId: event.request_id, reply: null, refused: true, waiting: false } })
+      else set({ planPreview: { requestId: event.request_id, reply: event as PlanPreviewOk, refused: false, waiting: false } })
     },
 
     setView(view) {
