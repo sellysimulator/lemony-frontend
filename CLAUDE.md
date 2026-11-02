@@ -88,7 +88,7 @@ other template pieces needs the user's explicit OK.
 ## Commands
 
 ```bash
-nvm use                  # Node 20.19 (.nvmrc; engines >=20.19)
+nvm use                  # Node 24.22.1 (.nvmrc; engines ^22.23.4 || ^24.22.1 || >=26.12.1)
 npm ci
 npm run dev              # :5173, proxies /api + /socket.io to :8080
 npm run build            # tsc -b && vite build — this is the typecheck

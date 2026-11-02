@@ -3,6 +3,7 @@ import { CalendarDays, CircleCheck, CircleX, Clock, CloudSun, CupSoda, Info, Loa
 import { useLocation, useNavigate } from 'react-router-dom'
 import Layout from '../components/shared/Layout'
 import LoadingSpinner from '../components/shared/LoadingSpinner'
+import Select from '../components/shared/Select'
 import { CheckboxField, NumberField, RangeField, Section, SubCard } from '../components/config/fields'
 import InfoButton from '../components/config/docs/InfoButton'
 import PacksEditor from '../components/config/PacksEditor'
@@ -77,18 +78,14 @@ function SelectField(props: { label: string; value: string; options: readonly st
         </label>
         {props.info}
       </div>
-      <select
+      {/* Not nested in the label: a click on an option would bubble to it and reopen the list. */}
+      <Select
         id={id}
         value={props.value}
-        onChange={(e) => props.onChange(e.target.value)}
-        className="mt-1 min-h-11 w-full rounded-lg border border-stone-300 bg-white px-3 py-2 capitalize focus:border-brand-strong focus:ring-2 focus:ring-brand/60 focus:outline-none"
-      >
-        {props.options.map((o) => (
-          <option key={o} value={o}>
-            {o}
-          </option>
-        ))}
-      </select>
+        options={props.options.map((o) => ({ value: o, label: o.charAt(0).toUpperCase() + o.slice(1) }))}
+        onChange={props.onChange}
+        className="mt-1 w-full"
+      />
     </div>
   )
 }
