@@ -4,8 +4,29 @@ import { Bubble } from 'react-chartjs-2'
 import type { DayRecord } from '../../../types/game'
 import { money, pct } from '../../../utils/format'
 import ChartBox from '../ChartBox'
-import { baseOptions, GRID, SURFACE } from '../chartSetup'
+import { baseOptions, GRID, SURFACE, sequentialColor } from '../chartSetup'
 import { bubblePoints, recipeText, temperatureColors } from './config'
+
+const STEPS = 6
+
+/** Flat-step colour scale: pale = cooler, dark = hotter, with the day range in °C. */
+function TemperatureScale({ days }: { days: DayRecord[] }): ReactElement | null {
+  if (days.length === 0) return null
+  const temps = days.map((d) => d.temperature)
+  const lo = Math.min(...temps)
+  const hi = Math.max(...temps)
+  return (
+    <div className="flex items-center gap-2 text-sm text-ink-muted" role="img" aria-label={`Colour scale: lighter is cooler, ${lo}°C; darker is hotter, ${hi}°C`}>
+      <span>Cooler · {lo}°C</span>
+      <svg width={STEPS * 18} height="12" viewBox={`0 0 ${STEPS * 18} 12`} aria-hidden="true" className="shrink-0 rounded-xs">
+        {Array.from({ length: STEPS }, (_, i) => (
+          <rect key={i} x={i * 18} width="18" height="12" fill={sequentialColor(i / (STEPS - 1))} />
+        ))}
+      </svg>
+      <span>{hi}°C · Hotter</span>
+    </div>
+  )
+}
 
 /** L1: one bubble per day. x price, y success rate, size visitors, colour depth temperature. */
 export default function PriceSuccessChart(props: { days: DayRecord[]; onSelectDay?: (day: number) => void }): ReactElement {
@@ -51,6 +72,7 @@ export default function PriceSuccessChart(props: { days: DayRecord[]; onSelectDa
     <ChartBox
       title="Price vs success rate"
       caption={`One bubble per day. Size is visitors; a darker colour is a hotter day.${onSelectDay ? ' Click a bubble to open that day.' : ''}`}
+      legend={<TemperatureScale days={days} />}
       ariaLabel="Bubble chart of each day's price against its success rate"
       table={{
         head: ['Day', 'Price', 'Success rate', 'Visitors', 'Weather', '°C', 'Recipe'],

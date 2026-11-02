@@ -15,7 +15,7 @@ const ITEMS = [
 function HourGrid({ days, hours }: { days: DayRecord[]; hours: number[] }): ReactElement {
   return (
     <div className="mt-3 overflow-x-auto rounded-2xl border border-border bg-surface-raised p-4 shadow-sm">
-      <p className="mb-1 text-xs text-ink-muted">Success rate by day and hour</p>
+      <p className="mb-2 font-bold">Success rate by day and hour</p>
       <table role="table" aria-label="Success rate by day and hour" className="w-full text-xs tabular-nums">
         <thead>
           <tr>
