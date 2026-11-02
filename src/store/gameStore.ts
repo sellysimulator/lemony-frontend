@@ -58,6 +58,8 @@ interface GameStoreActions {
   handleGameAbandoned(): void
   handleError(code: string, message: string): void
   setView(view: PlayView): void
+  /** Opens the report of a day already held; no events are kept for past days, so there is no replay. A day not held changes nothing. */
+  openDayReport(day: number): void
   setSubmitting(value: boolean): void
   setCreating(value: boolean): void
   reset(): void
@@ -181,6 +183,11 @@ export const useGameStore = create<GameStoreState & GameStoreActions>((set, get)
 
     setView(view) {
       set({ view })
+    },
+    openDayReport(day) {
+      const record = get().state?.days.find((d) => d.day === day)
+      if (!record) return
+      set({ view: 'report', watch: { day, record, events: [] } })
     },
     setSubmitting(value) {
       set({ submitting: value })

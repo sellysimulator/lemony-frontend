@@ -71,6 +71,16 @@ export const OUTCOME_SERIES = {
 } as const
 
 export const SINGLE = '#2a78d6'
+/** Money lost: cash going down, a day's loss. */
+export const LOSS = '#e34948'
+/** One sequential hue (light to dark orange) for a quantity with an order, e.g. temperature. */
+export const SEQUENTIAL = { from: [252, 217, 182], to: [158, 56, 8] } as const
+/** `t` in 0–1 along the sequential hue, as a CSS colour. */
+export function sequentialColor(t: number): string {
+  const k = Math.min(1, Math.max(0, Number.isFinite(t) ? t : 0))
+  const [r, g, b] = SEQUENTIAL.from.map((a, i) => Math.round(a + (SEQUENTIAL.to[i] - a) * k))
+  return `rgb(${r}, ${g}, ${b})`
+}
 /** Totals shown beside a categorical series (e.g. all visitors vs buyers). */
 export const NEUTRAL = '#b8b6ae'
 

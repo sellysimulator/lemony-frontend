@@ -1,5 +1,6 @@
 import type { ReactElement } from 'react'
 import { Link } from 'react-router-dom'
+import { useGameStore } from '../../store/gameStore'
 import GameCharts from '../charts/GameCharts'
 import { Stat } from '../shared/Card'
 import LoadingSpinner from '../shared/LoadingSpinner'
@@ -32,6 +33,7 @@ export function SummaryTiles(props: { summary: GameSummary }): ReactElement {
 }
 
 export default function GameOver(props: { summary: GameSummary | null; publicId: string | null; signedIn: boolean }): ReactElement {
+  const openDayReport = useGameStore((s) => s.openDayReport)
   if (!props.summary) return <LoadingSpinner size="lg" label="Adding up the final numbers…" />
   return (
     <div className="space-y-5">
@@ -53,7 +55,7 @@ export default function GameOver(props: { summary: GameSummary | null; publicId:
         {props.publicId ? 'This game is saved.' : 'Saving this game…'} {!props.signedIn ? 'Sign in with Google to see saved games on your profile.' : ''}
       </p>
       <SummaryTiles summary={props.summary} />
-      <GameCharts summary={props.summary} />
+      <GameCharts summary={props.summary} onSelectDay={openDayReport} />
     </div>
   )
 }
