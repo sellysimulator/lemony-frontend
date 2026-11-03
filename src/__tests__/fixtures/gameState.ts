@@ -1,5 +1,5 @@
 /** A day-1 game on the backend's default configuration (app/core/defaults.py), for component tests. */
-import type { GameConfig, GameState, IngredientConfig, InventoryLine, Limits, PersonPreferences } from '../../types/game'
+import type { ConfigPreview, GameConfig, GameState, IngredientConfig, InventoryLine, Limits, PersonPreferences } from '../../types/game'
 
 /**
  * The limits exactly as the server serves them: `limits.json` is the backend's
@@ -7,6 +7,16 @@ import type { GameConfig, GameState, IngredientConfig, InventoryLine, Limits, Pe
  */
 const LIMITS = Object.values(import.meta.glob<Limits>('./limits.json', { eager: true, import: 'default' }))[0]
 export const defaultLimits = (): Limits => structuredClone(LIMITS)
+
+/**
+ * The server's reply to `POST /config/preview` for its default config, recorded: the
+ * backend's tests fail if `config_preview.json` is no longer exactly what it answers.
+ */
+const PREVIEW = Object.values(
+  import.meta.glob<{ config: GameConfig; reply: ConfigPreview }>('./config_preview.json', { eager: true, import: 'default' }),
+)[0]
+export const recordedConfig = (): GameConfig => structuredClone(PREVIEW.config)
+export const recordedPreview = (): ConfigPreview => structuredClone(PREVIEW.reply)
 
 const packs = [
   { size: 100, discount: 0 },
@@ -85,7 +95,16 @@ export const planningState = (over: Partial<GameState> = {}): GameState => ({
   cash: 100,
   today: { weather: 'sunny', temperature: 30 },
   popularity: 0.5,
+  popularity_factor: 1,
   inventory: { ice: empty(), sugar: empty(), lemons: empty(), cups: empty() },
+  // The server's pack prices for these packs and unit costs (the defaults').
+  packs: {
+    ice: recordedPreview().ingredients.ice!.packs,
+    sugar: recordedPreview().ingredients.sugar!.packs,
+    lemons: recordedPreview().ingredients.lemons!.packs,
+    cups: recordedPreview().ingredients.cups!.packs,
+  },
+  suggested_plan: { price: 0.55, recipe: { ice: 3, sugar: 3, lemons: 3 } },
   days: [],
   last_day_events: [],
   config: defaultConfig(),

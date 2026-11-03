@@ -1,11 +1,11 @@
 import type { ReactElement } from 'react'
 import { Bar } from 'react-chartjs-2'
-import type { DayRecord } from '../../../types/game'
+import type { DayRecord, HourTotal } from '../../../types/game'
 import { pct } from '../../../utils/format'
 import ChartBox from '../ChartBox'
 import Legend from '../Legend'
 import { barStyle, baseOptions, NEUTRAL, OUTCOME_SERIES, sequentialColor } from '../chartSetup'
-import { hourRate, hourTotals } from './config'
+import { hourRate } from './config'
 
 const ITEMS = [
   { key: 'bought', label: 'Bought', swatch: { kind: 'fill' as const, color: OUTCOME_SERIES.bought } },
@@ -45,21 +45,21 @@ function HourGrid({ days, hours }: { days: DayRecord[]; hours: number[] }): Reac
   )
 }
 
-/** L5: stacked Bought and Did not buy per hour, then a day-by-hour grid of success rate. */
-export default function TrafficByHour({ days }: { days: DayRecord[] }): ReactElement {
-  const t = hourTotals(days)
-  const bought = t.hours.map((h) => t.buyers.get(h) ?? 0)
-  const didNot = t.hours.map((h) => (t.visitors.get(h) ?? 0) - (t.buyers.get(h) ?? 0))
+/** L5: stacked Bought and Did not buy per hour (the server's `hour_totals`), then a day-by-hour grid of success rate. */
+export default function TrafficByHour({ days, totals }: { days: DayRecord[]; totals: HourTotal[] }): ReactElement {
+  const hours = totals.map((t) => t.hour)
+  const bought = totals.map((t) => t.buyers)
+  const didNot = totals.map((t) => t.not_bought)
   return (
     <div className="min-w-0">
     <ChartBox
       title="Traffic by hour (all days)"
       legend={<Legend items={ITEMS} />}
-      table={{ head: ['Hour', 'Bought', 'Did not buy'], rows: t.hours.map((h, i) => [`${h}:00`, bought[i], didNot[i]]) }}
+      table={{ head: ['Hour', 'Bought', 'Did not buy'], rows: hours.map((h, i) => [`${h}:00`, bought[i], didNot[i]]) }}
     >
       <Bar
         data={{
-          labels: t.hours.map((h) => `${h}:00`),
+          labels: hours.map((h) => `${h}:00`),
           datasets: [
             { label: 'Bought', data: bought, ...barStyle(OUTCOME_SERIES.bought) },
             { label: 'Did not buy', data: didNot, ...barStyle(NEUTRAL) },
@@ -68,7 +68,7 @@ export default function TrafficByHour({ days }: { days: DayRecord[] }): ReactEle
         options={baseOptions<'bar'>({ stacked: true, xLabel: 'Hour of day', yLabel: 'people' })}
       />
     </ChartBox>
-    <HourGrid days={days} hours={t.hours} />
+    <HourGrid days={days} hours={hours} />
     </div>
   )
 }

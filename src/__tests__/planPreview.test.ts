@@ -12,7 +12,7 @@ const { useAlerts } = await import('../store/alerts')
 const { previewPlan } = await import('../api/socketHandlers')
 
 const full = { game_id: 'g1', day: 3, phase: 'planning', days: [], last_day_events: [], summary: null, public_id: null } as unknown as GameState
-const plan = { purchases: { ice: { '100': 1 } }, recipe: { ice: 1, sugar: 2, lemons: 3 } }
+const plan = { purchases: { ice: { '100': 1 } }, recipe: { ice: 1, sugar: 2, lemons: 3 }, price: 0.45 }
 
 const ok = (request_id: string, margin = 1) => ({
   request_id,
@@ -37,12 +37,12 @@ beforeEach(() => {
 })
 
 describe('previewPlan emit', () => {
-  it('sends the plan with the game, the day and a fresh request_id each time', () => {
+  it('sends the plan and its price with the game, the day and a fresh request_id each time', () => {
     previewPlan(plan)
     previewPlan(plan)
     const calls = emit.mock.calls.filter((c) => c[0] === 'preview_plan')
     expect(calls).toHaveLength(2)
-    expect(calls[0][1]).toMatchObject({ game_id: 'g1', day: 3, purchases: plan.purchases, recipe: plan.recipe })
+    expect(calls[0][1]).toMatchObject({ game_id: 'g1', day: 3, purchases: plan.purchases, recipe: plan.recipe, price: 0.45 })
     const [a, b] = sentIds()
     expect(a).not.toBe(b)
     expect(a.length).toBeGreaterThanOrEqual(1)
@@ -102,6 +102,7 @@ describe('plan_preview replies', () => {
     listeners.get('plan_preview')!({ request_id: sentIds()[1], day: 3, error: { code: 'INVALID_PLAN', message: 'Too much ice' } })
     const s = useGameStore.getState()
     expect(s.planPreview.refused).toBe(true)
+    expect(s.planPreview.message).toBe('Too much ice')
     expect(s.planPreview.reply).toBeNull()
     expect(s.planPreview.waiting).toBe(false)
     expect(s.lastError).toBeNull()

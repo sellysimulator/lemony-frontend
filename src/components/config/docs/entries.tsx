@@ -1,7 +1,9 @@
 /**
  * Help for every configuration field, opened from the info buttons on the
- * config screen. Examples and charts are computed from the config being
- * edited, so they update as the player changes values.
+ * config screen. Every figure, chart and worked example is the server's, from
+ * `POST /config/preview` for the config being edited (`ctx.help`, `ctx.ingredients`),
+ * so it updates as the player changes values and always shows the rules the game
+ * plays. Nothing here works a figure out: the help picks, labels and lays them out.
  */
 import type { ReactNode } from 'react'
 import {
@@ -9,46 +11,31 @@ import {
   PERSON_TYPES,
   RECIPE_INGREDIENTS,
   WEATHER_TYPES,
+  type ConfigHelp,
   type GameConfig,
-  type DayPlanPayload,
-  type IngredientConfig,
-  type Limits,
-  type PackOption,
   type IngredientName,
-  type PersonPreferences,
+  type IngredientPreview,
+  type Limits,
   type PersonType,
   type RecipeIngredient,
   type Weather,
 } from '../../../types/game'
 import { money, pct, REASON_TEXT } from '../../../utils/format'
-import {
-  applyPopularity,
-  breakEvenUnits,
-  buyDecision,
-  buyProbability,
-  cheapFloor,
-  expectedSpawn,
-  hazard,
-  ingredientScore,
-  midpoint,
-  packPrice,
-  refusalReason,
-  score,
-  steps,
-  survival,
-  weatherOdds,
-  willingnessToPay,
-  type Recipe,
-  type ScoredRange,
-} from '../../../game/configMath'
 import { INGREDIENT_SERIES, PERSON_SERIES, WEATHER_SERIES } from '../../charts/chartSetup'
-import CupCostExample from './CupCostExample'
 import { BarChart, Example, Formula, H, LineChart, List, Note, P, Table, WeatherBands, type Series } from './primitives'
 
 export interface DocCtx {
   config: GameConfig
   /** The server's bounds (GET /config/defaults): the help quotes them, never a copy. */
   limits: Limits
+  /** The server's help figures for `config`; null until they arrive, or while the config is invalid. */
+  help: ConfigHelp | null
+  /** Each ingredient's figures from the server (null for one whose settings are invalid); null until they arrive. */
+  ingredients: Record<IngredientName, IngredientPreview | null> | null
+  /** The server's reason the config is invalid, if it is. */
+  invalid: string | null
+  /** The figures are for an earlier edit; newer ones are on their way. */
+  stale: boolean
   person?: PersonType
   ingredient?: IngredientName
   weather?: Weather
@@ -60,109 +47,54 @@ interface Doc {
 }
 
 const UNIT: Record<RecipeIngredient, string> = { ice: 'ice cubes', sugar: 'spoons of sugar', lemons: 'lemons' }
-const round2 = (n: number) => Math.round(n * 100) / 100
-const roundTo = (n: number, step: number) => Math.round(n / step) * step
 const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1)
 /** A temperature with a true minus sign. */
 const deg = (n: number) => `${n < 0 ? '−' : ''}${Math.abs(n)}°C`
+const dollars = (x: number) => `$${x.toFixed(2)}`
 
-function priceSteps(cfg: GameConfig): number[] {
-  const r = cfg.min_max_values.price
-  return steps(r, Math.max(0.05, roundTo((r.max - r.min) / 30, 0.05)))
+/** Where a figure goes before the server has sent it, or while the config cannot be played. */
+function Waiting(props: { ctx: DocCtx }): ReactNode {
+  return (
+    <p role="status" className="mt-4 rounded-xl border border-border bg-surface-sunken/60 p-3 text-sm text-ink-muted">
+      {props.ctx.invalid ? <>The examples appear once the configuration is valid: {props.ctx.invalid}</> : 'Asking the server for the examples…'}
+    </p>
+  )
 }
 
-function tempSteps(cfg: GameConfig): number[] {
-  const r = cfg.min_max_values.temperature
-  return steps(r, Math.max(1, Math.ceil((r.max - r.min) / 40)))
+/** Dimmed while newer figures are on their way. */
+function Figures(props: { stale: boolean; children: ReactNode }): ReactNode {
+  return (
+    <div className={props.stale ? 'opacity-60' : undefined} aria-busy={props.stale}>
+      {props.children}
+    </div>
+  )
 }
 
-/** The temperature a "typical" day of this weather has: the middle of its range, inside the day's range. */
-function typicalTemp(cfg: GameConfig, w: Weather): number {
-  const t = cfg.min_max_values.temperature
-  return Math.min(t.max, Math.max(t.min, midpoint(cfg.weather_temperature_ranges[w])))
+/** `render` with the server's help figures, or a placeholder until there are some. */
+function withHelp(ctx: DocCtx, render: (help: ConfigHelp) => ReactNode): ReactNode {
+  return ctx.help ? <Figures stale={ctx.stale}>{render(ctx.help)}</Figures> : <Waiting ctx={ctx} />
 }
 
-function hours(cfg: GameConfig): number[] {
-  return steps(cfg.min_max_values.hour, 1, 24)
+/** `render` with one ingredient's server figures, or a placeholder until there are some. */
+function withIngredient(ctx: DocCtx, name: IngredientName, render: (figures: IngredientPreview) => ReactNode): ReactNode {
+  const figures = ctx.ingredients?.[name]
+  return figures ? <Figures stale={ctx.stale}>{render(figures)}</Figures> : <Waiting ctx={ctx} />
 }
 
-/** One line per customer type for a factor's 0–1 score, with the selected type drawn thicker. */
-function scoreSeries(cfg: GameConfig, factor: ScoredRange, xs: number[], selected?: PersonType): Series[] {
+/** One line per customer type, with the selected type drawn thicker. */
+function typeSeries(data: (t: PersonType) => number[], selected?: PersonType): Series[] {
   return PERSON_TYPES.map((t) => ({
     label: t,
     color: PERSON_SERIES[t],
     emphasis: t === selected,
     muted: selected !== undefined && t !== selected,
-    data: xs.map((x) => score(cfg, cfg.people_preferences[t], factor, x)),
+    data: data(t),
   }))
-}
-
-/** One line per customer type for an ingredient's 0–1 score, from each type's own tolerances. */
-function ingredientSeries(cfg: GameConfig, n: RecipeIngredient, xs: number[], selected?: PersonType): Series[] {
-  return PERSON_TYPES.map((t) => ({
-    label: t,
-    color: PERSON_SERIES[t],
-    emphasis: t === selected,
-    muted: selected !== undefined && t !== selected,
-    data: xs.map((x) => ingredientScore(cfg.people_preferences[t], n, x)),
-  }))
-}
-
-/** One line per customer type: chance to buy at each price, for a given recipe. */
-function chanceSeries(cfg: GameConfig, recipe: Recipe, xs: number[], selected?: PersonType): Series[] {
-  return PERSON_TYPES.map((t) => ({
-    label: t,
-    color: PERSON_SERIES[t],
-    emphasis: t === selected,
-    muted: selected !== undefined && t !== selected,
-    data: xs.map((x) => buyDecision(cfg, cfg.people_preferences[t], x, recipe).chance),
-  }))
-}
-
-const favouriteRecipe = (p: PersonPreferences): Recipe => ({ ice: p.preferred_ice, sugar: p.preferred_sugar, lemons: p.preferred_lemons })
-
-/** A plan in the middle of what customers like: the average favourite recipe and the average budget. */
-function typicalPlan(cfg: GameConfig) {
-  const mm = cfg.min_max_values
-  const people = PERSON_TYPES.map((t) => cfg.people_preferences[t])
-  const avg = (f: (p: PersonPreferences) => number) => people.reduce((sum, p) => sum + f(p), 0) / people.length
-  const clamp = (v: number, r: { min: number; max: number }) => Math.min(r.max, Math.max(r.min, v))
-  const amount = (n: RecipeIngredient) => clamp(Math.round(avg((p) => p[`preferred_${n}`])), mm[n])
-  return {
-    price: round2(clamp(roundTo(avg((p) => p.average_expense), 0.05), mm.price)),
-    recipe: { ice: amount('ice'), sugar: amount('sugar'), lemons: amount('lemons') },
-  }
-}
-
-function samplePlan(cfg: GameConfig) {
-  const mm = cfg.min_max_values
-  return {
-    price: round2(roundTo(midpoint(mm.price), 0.05)),
-    recipe: { ice: Math.round(midpoint(mm.ice)), sugar: Math.round(midpoint(mm.sugar)), lemons: Math.round(midpoint(mm.lemons)) },
-  }
-}
-
-function smallestPack(cfg: IngredientConfig): PackOption {
-  return cfg.packs.reduce((a, b) => (b.size < a.size ? b : a))
-}
-
-function biggestPack(cfg: IngredientConfig): PackOption {
-  return cfg.packs.reduce((a, b) => (b.size > a.size ? b : a))
-}
-
-/** One pack of each ingredient, the smallest or the biggest, as the plan sends it. */
-function onePackOfEach(cfg: GameConfig, which: 'smallest' | 'biggest'): DayPlanPayload['purchases'] {
-  const pick = which === 'smallest' ? smallestPack : biggestPack
-  return Object.fromEntries(INGREDIENTS.map((n) => [n, { [String(pick(cfg.ingredients[n]).size)]: 1 }]))
 }
 
 const COST_RULE = `cost per cup = the average cost of the cups your stock can make today
 each ingredient: oldest stock first, at the price you paid,
                  then today's packs, the dearest per unit first`
-
-function refusal(cfg: GameConfig, t: PersonType, price: number, recipe: Recipe, scores: Recipe): string {
-  return REASON_TEXT[refusalReason(cfg.people_preferences[t], price, recipe, scores)]
-}
 
 const KERNEL = 'score = max(0, 1 − |value − favourite| ÷ reach)\nreach = distance from the favourite to the FARTHER end of the allowed range'
 
@@ -174,6 +106,8 @@ would pay     = budget × (1 + quality swing × (2 × quality − 1))
 chance to buy = 1 ÷ (1 + e^((price − would pay) ÷ spread))
 spread        = price tolerance above × budget ÷ ln 19
 if price < budget × (1 − price tolerance below): chance × price ÷ that floor`
+
+const recipeText = (r: Record<RecipeIngredient, number>) => `${r.ice} ice, ${r.sugar} sugar, ${r.lemons} lemons`
 
 /* ------------------------------------------------------------------ Game */
 
@@ -200,8 +134,8 @@ const game: Doc = {
 
 const numDays: Doc = {
   title: () => 'Number of days',
-  body: ({ config, limits }) => {
-    const odds = weatherOdds(config)
+  body: (ctx) => {
+    const { config, limits } = ctx
     return (
       <>
         <P>
@@ -216,13 +150,15 @@ const numDays: Doc = {
             'Final results add up every day, so totals naturally grow with the number of days.',
           ]}
         />
-        <Example title={`What ${config.num_days} days look like with your weather`}>
-          The expected number of days of each weather, from your temperature range and weather ranges:
-          <Table
-            head={['Weather', 'Chance per day', `Expected days in ${config.num_days}`]}
-            rows={WEATHER_TYPES.map((w) => [cap(w), pct(odds[w]), (odds[w] * config.num_days).toFixed(1)])}
-          />
-        </Example>
+        {withHelp(ctx, (help) => (
+          <Example title={`What ${config.num_days} days look like with your weather`}>
+            The expected number of days of each weather, from your temperature range and weather ranges:
+            <Table
+              head={['Weather', 'Chance per day', `Expected days in ${config.num_days}`]}
+              rows={WEATHER_TYPES.map((w) => [cap(w), pct(help.weather[w].odds), help.weather[w].expected_days.toFixed(1)])}
+            />
+          </Example>
+        ))}
       </>
     )
   },
@@ -230,37 +166,32 @@ const numDays: Doc = {
 
 const startingCash: Doc = {
   title: () => 'Starting cash',
-  body: ({ config }) => {
-    const plan = samplePlan(config)
-    return (
-      <>
-        <P>The money you have on the morning of day 1. There are no loans: you can never spend more than you have on ingredients.</P>
-        <Formula>cash tomorrow = cash today − ingredients bought + cups sold × price</Formula>
-        <H>How it affects the game</H>
-        <List
-          items={[
-            'Low cash forces small purchases, so you may sell out on a busy day.',
-            'High cash lets you stock up, but over-buying perishable goods turns into spoilage.',
-            'You buy whole packs, so the smallest pack of each ingredient sets the minimum you can spend to make any lemonade at all.',
-          ]}
-        />
-        <Example>
-          <CupCostExample config={config} purchases={onePackOfEach(config, 'smallest')} recipe={plan.recipe}>
-            {(c) => (
-              <>
-                The cheapest way to have some of everything is the smallest pack of each ingredient: <strong>{money(c.spend)}</strong>. Your{' '}
-                {money(config.starting_cash)} covers that <strong>{c.spend > 0 ? (config.starting_cash / c.spend).toFixed(1) : '∞'}×</strong>.
-                <br />
-                With a mid-range recipe ({plan.recipe.ice} ice, {plan.recipe.sugar} sugar, {plan.recipe.lemons} lemons, plus a cup) those packs make{' '}
-                <strong>{c.cups_possible} cups</strong>
-                {c.cost_per_cup === null ? '' : <>, at <strong>{money(c.cost_per_cup)}</strong> a cup</>}. Bigger packs with a discount lower the cost per cup.
-              </>
-            )}
-          </CupCostExample>
-        </Example>
-      </>
-    )
-  },
+  body: (ctx) => (
+    <>
+      <P>The money you have on the morning of day 1. There are no loans: you can never spend more than you have on ingredients.</P>
+      <Formula>cash tomorrow = cash today − ingredients bought + cups sold × price</Formula>
+      <H>How it affects the game</H>
+      <List
+        items={[
+          'Low cash forces small purchases, so you may sell out on a busy day.',
+          'High cash lets you stock up, but over-buying perishable goods turns into spoilage.',
+          'You buy whole packs, so the smallest pack of each ingredient sets the minimum you can spend to make any lemonade at all.',
+        ]}
+      />
+      {withHelp(ctx, (help) => {
+        const c = help.cup_cost.smallest
+        return (
+          <Example>
+            The cheapest way to have some of everything is the smallest pack of each ingredient: <strong>{money(c.spend)}</strong>. Your{' '}
+            {money(ctx.config.starting_cash)} covers that <strong>{c.covers === null ? '∞' : c.covers.toFixed(1)}×</strong>.
+            <br />
+            With a mid-range recipe ({recipeText(help.plans.sample.recipe)}, plus a cup) those packs make <strong>{c.cups_possible} cups</strong>
+            {c.cost_per_cup === null ? '' : <>, at <strong>{money(c.cost_per_cup)}</strong> a cup</>}. Bigger packs with a discount lower the cost per cup.
+          </Example>
+        )
+      })}
+    </>
+  ),
 }
 
 /* ------------------------------------------------------ Hours, temp, price */
@@ -286,14 +217,14 @@ const hoursSection: Doc = {
 
 const hour: Doc = {
   title: () => 'Opening hours',
-  body: ({ config }) => {
-    const h = config.min_max_values.hour
-    const xs = hours(config)
+  body: (ctx) => {
+    const h = ctx.config.min_max_values.hour
     return (
       <>
         <P>
           The stand opens at the first hour and closes when the last hour ends. With {h.min}–{h.max} it is open from{' '}
-          <strong>{h.min}:00 to {h.max + 1}:00</strong>, which is {Math.max(0, h.max - h.min + 1)} hourly slots. Customers arrive spread evenly within each hour.
+          <strong>{h.min}:00 to {h.max + 1}:00</strong>
+          {ctx.help ? `, which is ${ctx.help.grids.hours.length} hourly slots` : ''}. Customers arrive spread evenly within each hour.
         </P>
         <H>How it affects the game</H>
         <List
@@ -303,14 +234,16 @@ const hour: Doc = {
             'Every customer type’s favourite hour must fall inside the opening hours.',
           ]}
         />
-        <LineChart
-          title="Hour score per customer type"
-          labels={xs.map((x) => `${x}:00`)}
-          series={scoreSeries(config, 'hour', xs)}
-          xLabel="Hour"
-          yLabel="Hour score"
-          fmt="percent"
-        />
+        {withHelp(ctx, (help) => (
+          <LineChart
+            title="Hour score per customer type"
+            labels={help.grids.hours.map((x) => `${x}:00`)}
+            series={typeSeries((t) => help.people[t].hour_score)}
+            xLabel="Hour"
+            yLabel="Hour score"
+            fmt="percent"
+          />
+        ))}
         <P>The hour score is one third of a customer type’s visitor bonus (see “Base visitors / hour”). It changes how many people come, not whether they buy.</P>
       </>
     )
@@ -319,10 +252,8 @@ const hour: Doc = {
 
 const temperature: Doc = {
   title: () => 'Temperature range',
-  body: ({ config }) => {
-    const t = config.min_max_values.temperature
-    const xs = tempSteps(config)
-    const odds = weatherOdds(config)
+  body: (ctx) => {
+    const t = ctx.config.min_max_values.temperature
     return (
       <>
         <P>
@@ -337,17 +268,21 @@ const temperature: Doc = {
             'A wider range means more varied days and makes customers more tolerant of temperatures away from their favourite.',
           ]}
         />
-        <LineChart
-          title="Temperature score per customer type"
-          labels={xs.map((x) => `${x}°`)}
-          series={scoreSeries(config, 'temperature', xs)}
-          xLabel="Temperature °C"
-          yLabel="Temperature score"
-          fmt="percent"
-        />
-        <Example title="Weather odds with this range">
-          <Table head={['Weather', 'Chance per day']} rows={WEATHER_TYPES.map((w) => [cap(w), pct(odds[w])])} />
-        </Example>
+        {withHelp(ctx, (help) => (
+          <>
+            <LineChart
+              title="Temperature score per customer type"
+              labels={help.grids.temperatures.map((x) => `${x}°`)}
+              series={typeSeries((p) => help.people[p].temperature_score)}
+              xLabel="Temperature °C"
+              yLabel="Temperature score"
+              fmt="percent"
+            />
+            <Example title="Weather odds with this range">
+              <Table head={['Weather', 'Chance per day']} rows={WEATHER_TYPES.map((w) => [cap(w), pct(help.weather[w].odds)])} />
+            </Example>
+          </>
+        ))}
       </>
     )
   },
@@ -355,10 +290,8 @@ const temperature: Doc = {
 
 const price: Doc = {
   title: () => 'Cup price range',
-  body: ({ config }) => {
-    const r = config.min_max_values.price
-    const xs = priceSteps(config)
-    const plan = typicalPlan(config)
+  body: (ctx) => {
+    const r = ctx.config.min_max_values.price
     return (
       <>
         <P>
@@ -370,14 +303,16 @@ const price: Doc = {
           The range only limits your choice. How fast customers lose interest as the price rises comes from each type’s budget, price tolerance and how much
           they like your recipe (see “Customers”).
         </P>
-        <LineChart
-          title={`Chance to buy at each price, with ${plan.recipe.ice} ice, ${plan.recipe.sugar} sugar, ${plan.recipe.lemons} lemons`}
-          labels={xs.map((x) => `$${x.toFixed(2)}`)}
-          series={chanceSeries(config, plan.recipe, xs)}
-          xLabel="Cup price"
-          yLabel="Chance to buy"
-          fmt="percent"
-        />
+        {withHelp(ctx, (help) => (
+          <LineChart
+            title={`Chance to buy at each price, with ${recipeText(help.plans.typical.recipe)}`}
+            labels={help.grids.prices.map(dollars)}
+            series={typeSeries((t) => help.people[t].typical_chance)}
+            xLabel="Cup price"
+            yLabel="Chance to buy"
+            fmt="percent"
+          />
+        ))}
         <Note>A very high maximum lets you price everyone out; a very low minimum lets you sell at a loss or look suspiciously cheap.</Note>
       </>
     )
@@ -409,32 +344,40 @@ const recipeSection: Doc = {
 function recipeRange(n: RecipeIngredient): Doc {
   return {
     title: () => `${cap(n)} per cup`,
-    body: ({ config }) => {
+    body: (ctx) => {
+      const { config } = ctx
       const r = config.min_max_values[n]
-      const xs = steps(r)
       return (
         <>
           <P>
             The fewest and most {UNIT[n]} you can put in one cup: currently {r.min} to {r.max}. More {n} per cup also costs more per cup (
             {money(config.ingredients[n].unit_cost)} each).
           </P>
-          <LineChart
-            title={`${cap(n)} score per customer type`}
-            labels={xs}
-            series={ingredientSeries(config, n, xs)}
-            xLabel={`${cap(n)} per cup`}
-            yLabel="Score"
-            fmt="percent"
-          />
-          <Example>
-            <Table
-              head={['Customer', 'Favourite', `Score at ${r.min}`, `Score at ${r.max}`]}
-              rows={PERSON_TYPES.map((t) => {
-                const p = config.people_preferences[t]
-                return [t, p[`preferred_${n}`], pct(ingredientScore(p, n, r.min)), pct(ingredientScore(p, n, r.max))]
-              })}
-            />
-          </Example>
+          {withHelp(ctx, (help) => {
+            const xs = help.grids.per_cup[n]
+            const last = xs.length - 1
+            return (
+              <>
+                <LineChart
+                  title={`${cap(n)} score per customer type`}
+                  labels={xs}
+                  series={typeSeries((t) => help.people[t].ingredient_score[n])}
+                  xLabel={`${cap(n)} per cup`}
+                  yLabel="Score"
+                  fmt="percent"
+                />
+                <Example>
+                  <Table
+                    head={['Customer', 'Favourite', `Score at ${xs[0]}`, `Score at ${xs[last]}`]}
+                    rows={PERSON_TYPES.map((t) => {
+                      const scores = help.people[t].ingredient_score[n]
+                      return [t, config.people_preferences[t][`preferred_${n}`], pct(scores[0]), pct(scores[last])]
+                    })}
+                  />
+                </Example>
+              </>
+            )
+          })}
           <Note>If you narrow the range so it no longer contains a customer type’s favourite amount, the configuration becomes invalid.</Note>
         </>
       )
@@ -446,8 +389,8 @@ function recipeRange(n: RecipeIngredient): Doc {
 
 const weatherSection: Doc = {
   title: () => 'Weather',
-  body: ({ config }) => {
-    const odds = weatherOdds(config)
+  body: (ctx) => {
+    const { config } = ctx
     return (
       <>
         <P>Weather is decided in two steps each morning, and then changes how many people come out:</P>
@@ -457,29 +400,26 @@ const weatherSection: Doc = {
 3. visitors    × that weather's traffic multiplier`}</Formula>
         <WeatherBands config={config} />
         <P>Together the ranges must cover the whole temperature range with no gaps. Overlaps are allowed.</P>
-        <BarChart
-          title="Chance of each weather per day"
-          labels={WEATHER_TYPES.map(cap)}
-          series={[{ label: 'Chance', data: WEATHER_TYPES.map((w) => odds[w]), color: WEATHER_SERIES.sunny }]}
-          xLabel="Weather"
-          yLabel="Chance"
-          fmt="percent"
-        />
+        {withHelp(ctx, (help) => (
+          <BarChart
+            title="Chance of each weather per day"
+            labels={WEATHER_TYPES.map(cap)}
+            series={[{ label: 'Chance', data: WEATHER_TYPES.map((w) => help.weather[w].odds), color: WEATHER_SERIES.sunny }]}
+            xLabel="Weather"
+            yLabel="Chance"
+            fmt="percent"
+          />
+        ))}
         <P>The weather types are fixed; their values are yours to tune.</P>
       </>
     )
   },
 }
 
-/** Expected visitors over a whole day of this weather, all types together, on a typical temperature for it. */
-function dayVisitors(cfg: GameConfig, w: Weather): number {
-  const t = typicalTemp(cfg, w)
-  return hours(cfg).reduce((sum, h) => sum + PERSON_TYPES.reduce((s, k) => s + expectedSpawn(cfg, cfg.people_preferences[k], h, w, t), 0), 0)
-}
-
 const trafficMultiplier: Doc = {
   title: ({ weather }) => `Traffic multiplier${weather ? ` (${weather})` : ''}`,
-  body: ({ config, limits, weather = 'sunny' }) => {
+  body: (ctx) => {
+    const { config, limits, weather = 'sunny' } = ctx
     const m = config.weather_multipliers[weather]
     return (
       <>
@@ -491,13 +431,15 @@ const trafficMultiplier: Doc = {
         <P>
           In {weather} weather the multiplier is <strong>×{m}</strong>, so every customer type shows up at {pct(m)} of the rate it would with a multiplier of 1.
         </P>
-        <BarChart
-          title="Expected visitors over a whole day, all customer types"
-          labels={WEATHER_TYPES.map(cap)}
-          series={[{ label: 'Visitors', data: WEATHER_TYPES.map((w) => round2(dayVisitors(config, w))), color: WEATHER_SERIES[weather] }]}
-          xLabel="Weather (at the middle of its temperature range)"
-          yLabel="Visitors"
-        />
+        {withHelp(ctx, (help) => (
+          <BarChart
+            title="Expected visitors over a whole day, all customer types"
+            labels={WEATHER_TYPES.map(cap)}
+            series={[{ label: 'Visitors', data: WEATHER_TYPES.map((w) => help.weather[w].day_visitors), color: WEATHER_SERIES[weather] }]}
+            xLabel="Weather (at the middle of its temperature range)"
+            yLabel="Visitors"
+          />
+        ))}
         <P>
           The chart includes each type’s preference bonus, so two weathers with the same multiplier can still differ: a weather that more customer types like,
           at a temperature they like, draws a bigger crowd.
@@ -509,8 +451,8 @@ const trafficMultiplier: Doc = {
 
 const weatherRange: Doc = {
   title: ({ weather }) => `Temperature range${weather ? ` (${weather})` : ''}`,
-  body: ({ config, limits, weather = 'sunny' }) => {
-    const odds = weatherOdds(config)
+  body: (ctx) => {
+    const { config, limits, weather = 'sunny' } = ctx
     const r = config.weather_temperature_ranges[weather]
     return (
       <>
@@ -519,10 +461,12 @@ const weatherRange: Doc = {
           type’s range contains it. If two ranges overlap, one of the matching weathers is picked at random.
         </P>
         <WeatherBands config={config} />
-        <Example>
-          With these ranges, a day is {weather} with a chance of <strong>{pct(odds[weather])}</strong>, which is about{' '}
-          <strong>{(odds[weather] * config.num_days).toFixed(1)}</strong> of your {config.num_days} days.
-        </Example>
+        {withHelp(ctx, (help) => (
+          <Example>
+            With these ranges, a day is {weather} with a chance of <strong>{pct(help.weather[weather].odds)}</strong>, which is about{' '}
+            <strong>{help.weather[weather].expected_days.toFixed(1)}</strong> of your {config.num_days} days.
+          </Example>
+        ))}
         <Note>
           Each range must stay within {deg(limits.temperature.min)} to {deg(limits.temperature.max)}, and together the ranges must cover the whole temperature
           range with no gaps, or the configuration is invalid.
@@ -536,81 +480,90 @@ const weatherRange: Doc = {
 
 const customersSection: Doc = {
   title: () => 'Customers',
-  body: ({ config }) => {
-    const plan = typicalPlan(config)
-    const rows = PERSON_TYPES.map((t) => {
-      const d = buyDecision(config, config.people_preferences[t], plan.price, plan.recipe)
-      return { t, ...d, reason: refusal(config, t, plan.price, plan.recipe, d.scores) }
-    })
-    return (
-      <>
-        <P>Four customer types walk past the stand. Each has its own favourite hour, temperature, weather, budget and recipe. Two things are simulated for them:</P>
-        <H>1. How many come</H>
-        <Formula>{`bonus    = average(weather match (0 or 1), hour score, temperature score)
+  body: (ctx) => (
+    <>
+      <P>Four customer types walk past the stand. Each has its own favourite hour, temperature, weather, budget and recipe. Two things are simulated for them:</P>
+      <H>1. How many come</H>
+      <Formula>{`bonus    = average(weather match (0 or 1), hour score, temperature score)
 expected = base visitors × (1 + bonus) × weather multiplier
 count    = random (Poisson) around expected`}</Formula>
-        <P>The bonus is between 0 and 1, so on a perfect day a type brings up to twice its base visitors (before the weather multiplier).</P>
-        <H>2. Whether each one buys</H>
-        <P>
-          Your recipe sets what a customer is willing to pay, and your price is compared against it. Each ingredient scores 1 at their favourite amount and
-          falls in a straight line to 0 at their tolerance below or above it. A cup they love raises what they would pay above their budget; a cup they dislike
-          lowers it.
-        </P>
-        <Formula>{BUY}</Formula>
-        <P>
-          Half of a type buys when you charge exactly what they would pay. The chance climbs as you go under it and falls as you go over it, reaching about 5%
-          one “price tolerance above” past it.
-        </P>
-        <P>
-          When someone says no, the day report gives one reason. While your popularity is under 50%, a customer who would have bought at a neutral 50% says “
-          {REASON_TEXT.not_popular}”. Otherwise it is “too cheap” if the price looked suspicious, “too pricey” if the price is further over their budget (counted
-          in price tolerances) than their least favourite ingredient is from perfect, or else that ingredient.
-        </P>
-        <H>3. How popular the stand is</H>
-        <P>
-          Every chance to buy is then multiplied by 0.5 + popularity, never above 100%. Popularity is the average of your daily success rates so far; until a day
-          has had visitors it is the starting popularity, {pct(config.starting_popularity)} (see “Starting popularity”). The example below is at a neutral 50%.
-        </P>
-        <Example title={`Worked example: ${money(plan.price)} with ${plan.recipe.ice} ice, ${plan.recipe.sugar} sugar, ${plan.recipe.lemons} lemons`}>
-          <Table
-            head={['Customer', 'Ice', 'Sugar', 'Lemons', 'Quality', 'Would pay', 'Chance to buy', 'Most likely “no”']}
-            rows={rows.map((r) => [
-              r.t,
-              pct(r.scores.ice),
-              pct(r.scores.sugar),
-              pct(r.scores.lemons),
-              pct(r.quality),
-              money(r.wtp),
-              <strong key="c">{pct(r.chance)}</strong>,
-              r.reason,
-            ])}
-          />
-        </Example>
-        <BarChart
-          title="Chance to buy for the example plan"
-          labels={PERSON_TYPES}
-          series={[{ label: 'Chance to buy', data: rows.map((r) => r.chance), color: PERSON_SERIES.Child }]}
-          xLabel="Customer type"
-          yLabel="Chance"
-          fmt="percent"
-        />
-        <P>The customer types are fixed; their values are yours to tune.</P>
-      </>
-    )
-  },
+      <P>The bonus is between 0 and 1, so on a perfect day a type brings up to twice its base visitors (before the weather multiplier).</P>
+      <H>2. Whether each one buys</H>
+      <P>
+        Your recipe sets what a customer is willing to pay, and your price is compared against it. Each ingredient scores 1 at their favourite amount and
+        falls in a straight line to 0 at their tolerance below or above it. A cup they love raises what they would pay above their budget; a cup they dislike
+        lowers it.
+      </P>
+      <Formula>{BUY}</Formula>
+      <P>
+        Half of a type buys when you charge exactly what they would pay. The chance climbs as you go under it and falls as you go over it, reaching about 5%
+        one “price tolerance above” past it.
+      </P>
+      <P>
+        When someone says no, the day report gives one reason. While your popularity is under 50%, a customer who would have bought at a neutral 50% says “
+        {REASON_TEXT.not_popular}”. Otherwise it is “too cheap” if the price looked suspicious, “too pricey” if the price is further over their budget (counted
+        in price tolerances) than their least favourite ingredient is from perfect, or else that ingredient.
+      </P>
+      <H>3. How popular the stand is</H>
+      <P>
+        Every chance to buy is then multiplied by 0.5 + popularity, never above 100%. Popularity is the average of your daily success rates so far; until a day
+        has had visitors it is the starting popularity, {pct(ctx.config.starting_popularity)} (see “Starting popularity”). The example below is at a neutral 50%.
+      </P>
+      {withHelp(ctx, (help) => {
+        const plan = help.plans.typical
+        return (
+          <>
+            <Example title={`Worked example: ${money(plan.price)} with ${recipeText(plan.recipe)}`}>
+              <Table
+                head={['Customer', 'Ice', 'Sugar', 'Lemons', 'Quality', 'Would pay', 'Chance to buy', 'Most likely “no”']}
+                rows={PERSON_TYPES.map((t) => {
+                  const w = help.people[t].worked
+                  return [
+                    t,
+                    pct(w.scores.ice),
+                    pct(w.scores.sugar),
+                    pct(w.scores.lemons),
+                    pct(w.quality),
+                    money(w.wtp),
+                    <strong key="c">{pct(w.chance)}</strong>,
+                    REASON_TEXT[w.reason] ?? w.reason,
+                  ]
+                })}
+              />
+            </Example>
+            <BarChart
+              title="Chance to buy for the example plan"
+              labels={PERSON_TYPES}
+              series={[{ label: 'Chance to buy', data: PERSON_TYPES.map((t) => help.people[t].worked.chance), color: PERSON_SERIES.Child }]}
+              xLabel="Customer type"
+              yLabel="Chance"
+              fmt="percent"
+            />
+          </>
+        )
+      })}
+      <P>The customer types are fixed; their values are yours to tune.</P>
+    </>
+  ),
 }
 
 const qualitySwing: Doc = {
   title: () => 'Recipe effect on price',
-  body: ({ config, limits }) => {
+  body: (ctx) => {
+    const { config, limits } = ctx
     const s = config.quality_swing
     const adult = config.people_preferences.Adult
     return (
       <>
         <P>
-          How much your recipe moves what customers are willing to pay, from {limits.quality_swing.min} to {limits.quality_swing.max}. With {s}, a cup a customer loves (quality 100%) makes them pay up to{' '}
-          <strong>{pct(1 + s)}</strong> of their budget, an average cup {pct(1)}, and a cup they dislike in every way <strong>{pct(1 - s)}</strong>.
+          How much your recipe moves what customers are willing to pay, from {limits.quality_swing.min} to {limits.quality_swing.max}.
         </P>
+        {withHelp(ctx, (help) => (
+          <P>
+            With {s}, a cup a customer loves (quality 100%) makes them pay up to <strong>{pct(help.quality_swing.best)}</strong> of their budget, an average
+            cup {pct(help.quality_swing.average)}, and a cup they dislike in every way <strong>{pct(help.quality_swing.worst)}</strong>.
+          </P>
+        ))}
         <Formula>would pay = budget × (1 + quality swing × (2 × quality − 1))</Formula>
         <List
           items={[
@@ -618,31 +571,27 @@ const qualitySwing: Doc = {
             'Higher values reward a recipe tuned to your customers with room to charge more, and punish a poor recipe harder.',
           ]}
         />
-        <Example>
-          Adults have a budget of {money(adult.average_expense)}: they would pay {money(willingnessToPay(config, adult, 1))} for their favourite cup and{' '}
-          {money(willingnessToPay(config, adult, 0))} for one they dislike in every way.
-        </Example>
+        {withHelp(ctx, (help) => (
+          <Example>
+            Adults have a budget of {money(adult.average_expense)}: they would pay {money(help.people.Adult.wtp_best)} for their favourite cup and{' '}
+            {money(help.people.Adult.wtp_worst)} for one they dislike in every way.
+          </Example>
+        ))}
       </>
     )
   },
 }
 
-const POPULARITY_STEPS = [0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1]
-
 const startingPopularity: Doc = {
   title: () => 'Starting popularity',
-  body: ({ config, limits }) => {
+  body: (ctx) => {
+    const { config, limits } = ctx
     const s = config.starting_popularity
-    const plan = typicalPlan(config)
-    const chances = PERSON_TYPES.map((t) => buyDecision(config, config.people_preferences[t], plan.price, plan.recipe).chance)
-    const adult = config.people_preferences.Adult
-    const adultChance = buyProbability(adult, adult.average_expense, willingnessToPay(config, adult, 1))
-    const probes = [...new Set([0, 0.25, 0.5, 0.75, 1, s])].sort((a, b) => a - b)
     return (
       <>
         <P>
           Popularity is how well liked your stand is, from 0% to 100%. It multiplies every customer’s chance to buy, on top of what your price and recipe give.
-          This is where it starts: with {s}, day 1’s chances are multiplied by <strong>×{(0.5 + s).toFixed(2)}</strong>.
+          This is where it starts{ctx.help ? <>: with {s}, day 1’s chances are multiplied by <strong>×{ctx.help.popularity.start_factor.toFixed(2)}</strong></> : null}.
         </P>
         <H>How it is worked out</H>
         <Formula>{`success rate = cups sold ÷ visitors           // one day
@@ -674,24 +623,31 @@ popularity   = the plain average of the success rates
             'The weather changes who comes out. Each customer type has its own budget and taste, so the same price and recipe can sell to a different share of visitors on a rainy day than on a sunny one.',
           ]}
         />
-        <LineChart
-          title={`Chance to buy ${money(plan.price)} with ${plan.recipe.ice} ice, ${plan.recipe.sugar} sugar, ${plan.recipe.lemons} lemons, by popularity`}
-          labels={POPULARITY_STEPS.map((x) => pct(x))}
-          series={PERSON_TYPES.map((t, i) => ({ label: t, data: POPULARITY_STEPS.map((x) => applyPopularity(chances[i], x)), color: PERSON_SERIES[t] }))}
-          xLabel="Popularity"
-          yLabel="Chance to buy"
-          fmt="percent"
-        />
-        <Example>
-          <Table
-            head={['Popularity', 'Multiplier', 'Adult buys their favourite cup at their budget']}
-            rows={probes.map((x) => [
-              x === s ? <strong key="p">{pct(x)} (start)</strong> : pct(x),
-              `×${(0.5 + x).toFixed(2)}`,
-              pct(applyPopularity(adultChance, x)),
-            ])}
-          />
-        </Example>
+        {withHelp(ctx, (help) => {
+          const plan = help.plans.typical
+          return (
+            <>
+              <LineChart
+                title={`Chance to buy ${money(plan.price)} with ${recipeText(plan.recipe)}, by popularity`}
+                labels={help.grids.popularity.map((x) => pct(x))}
+                series={PERSON_TYPES.map((t) => ({ label: t, data: help.people[t].popularity_chance, color: PERSON_SERIES[t] }))}
+                xLabel="Popularity"
+                yLabel="Chance to buy"
+                fmt="percent"
+              />
+              <Example>
+                <Table
+                  head={['Popularity', 'Multiplier', 'Adult buys their favourite cup at their budget']}
+                  rows={help.popularity.probes.map((p) => [
+                    p.popularity === s ? <strong key="p">{pct(p.popularity)} (start)</strong> : pct(p.popularity),
+                    `×${p.factor.toFixed(2)}`,
+                    pct(p.favourite_at_budget.Adult),
+                  ])}
+                />
+              </Example>
+            </>
+          )
+        })}
         <H>On the end screen</H>
         <P>
           <strong>Success rate</strong> is all cups sold ÷ all visitors of the game, so a busy day counts more. <strong>Final popularity</strong> is the average
@@ -708,10 +664,9 @@ popularity   = the plain average of the success rates
 
 const spawnPerHour: Doc = {
   title: ({ person }) => `Base visitors / hour${person ? ` (${person})` : ''}`,
-  body: ({ config, person = 'Child' }) => {
+  body: (ctx) => {
+    const { config, person = 'Child' } = ctx
     const p = config.people_preferences[person]
-    const xs = hours(config)
-    const best = expectedSpawn(config, p, p.preferred_hour, p.preferred_weather, typicalTemp(config, p.preferred_weather))
     return (
       <>
         <P>
@@ -727,22 +682,26 @@ count    ~ Poisson(expected)`}</Formula>
             'The count is random: with an expected 4 visitors, an hour typically sees anything from 2 to 6.',
           ]}
         />
-        <LineChart
-          title={`Expected ${person.toLowerCase()} visitors per hour, by weather`}
-          labels={xs.map((x) => `${x}:00`)}
-          series={WEATHER_TYPES.map((w) => ({
-            label: `${cap(w)} (${typicalTemp(config, w)}°C)`,
-            color: WEATHER_SERIES[w],
-            emphasis: w === p.preferred_weather,
-            data: xs.map((h) => round2(expectedSpawn(config, p, h, w, typicalTemp(config, w)))),
-          }))}
-          xLabel="Hour"
-          yLabel="Visitors / hour"
-        />
-        <Example>
-          At {p.preferred_hour}:00 on a {p.preferred_weather} day at {typicalTemp(config, p.preferred_weather)}°C, expect about{' '}
-          <strong>{best.toFixed(1)}</strong> {person.toLowerCase()} visitors that hour.
-        </Example>
+        {withHelp(ctx, (help) => (
+          <>
+            <LineChart
+              title={`Expected ${person.toLowerCase()} visitors per hour, by weather`}
+              labels={help.grids.hours.map((x) => `${x}:00`)}
+              series={WEATHER_TYPES.map((w) => ({
+                label: `${cap(w)} (${help.weather[w].typical_temperature}°C)`,
+                color: WEATHER_SERIES[w],
+                emphasis: w === p.preferred_weather,
+                data: help.people[person].spawn[w],
+              }))}
+              xLabel="Hour"
+              yLabel="Visitors / hour"
+            />
+            <Example>
+              At {p.preferred_hour}:00 on a {p.preferred_weather} day at {help.weather[p.preferred_weather].typical_temperature}°C, expect about{' '}
+              <strong>{help.people[person].preferred_hour_spawn[p.preferred_weather].toFixed(1)}</strong> {person.toLowerCase()} visitors that hour.
+            </Example>
+          </>
+        ))}
       </>
     )
   },
@@ -750,38 +709,44 @@ count    ~ Poisson(expected)`}</Formula>
 
 const averageExpense: Doc = {
   title: ({ person }) => `Expects to pay${person ? ` (${person})` : ''}`,
-  body: ({ config, person = 'Child' }) => {
+  body: (ctx) => {
+    const { config, person = 'Child' } = ctx
     const p = config.people_preferences[person]
-    const r = config.min_max_values.price
-    const xs = priceSteps(config)
-    const fav = favouriteRecipe(p)
-    const best = willingnessToPay(config, p, 1)
-    const probes = [...new Set([cheapFloor(p), p.average_expense, best, r.max].map((x) => round2(Math.min(r.max, Math.max(r.min, x)))))]
     return (
       <>
         <P>
           The budget of a {person.toLowerCase()}: what they would pay for an average cup, {money(p.average_expense)}. A recipe they like raises what they would
-          pay, one they dislike lowers it (see “Recipe effect on price”). For their favourite cup they would pay {money(best)}.
+          pay, one they dislike lowers it (see “Recipe effect on price”).
+          {ctx.help ? <> For their favourite cup they would pay {money(ctx.help.people[person].wtp_best)}.</> : null}
         </P>
         <List
           items={[
             'Half of them buy at exactly what they would pay; more buy below it, fewer above.',
-            `Under ${money(cheapFloor(p))} the cup looks suspiciously cheap, and fewer buy the cheaper it gets (see “Price tolerance”).`,
+            ctx.help
+              ? `Under ${money(ctx.help.people[person].cheap_floor)} the cup looks suspiciously cheap, and fewer buy the cheaper it gets (see “Price tolerance”).`
+              : 'Well under their budget the cup looks suspiciously cheap, and fewer buy the cheaper it gets (see “Price tolerance”).',
             'The chances below are at a neutral popularity of 50%; popularity scales them up or down (see “Starting popularity”).',
             'It must fall inside the cup price range.',
           ]}
         />
-        <LineChart
-          title="Chance to buy their favourite cup"
-          labels={xs.map((x) => `$${x.toFixed(2)}`)}
-          series={chanceSeries(config, fav, xs, person)}
-          xLabel="Cup price"
-          yLabel="Chance to buy"
-          fmt="percent"
-        />
-        <Example>
-          <Table head={['You charge', 'Chance to buy their favourite cup']} rows={probes.map((x) => [money(x), pct(buyProbability(p, x, best))])} />
-        </Example>
+        {withHelp(ctx, (help) => (
+          <>
+            <LineChart
+              title="Chance to buy their favourite cup"
+              labels={help.grids.prices.map(dollars)}
+              series={typeSeries((t) => help.people[person].favourite_chance[t], person)}
+              xLabel="Cup price"
+              yLabel="Chance to buy"
+              fmt="percent"
+            />
+            <Example>
+              <Table
+                head={['You charge', 'Chance to buy their favourite cup']}
+                rows={help.people[person].favourite_probes.map((x) => [money(x.price), pct(x.chance)])}
+              />
+            </Example>
+          </>
+        ))}
       </>
     )
   },
@@ -790,29 +755,36 @@ const averageExpense: Doc = {
 function priceToleranceDoc(): Doc {
   return {
     title: ({ person }) => `Price tolerance${person ? ` (${person})` : ''}`,
-    body: ({ config, limits, person = 'Child' }) => {
+    body: (ctx) => {
+      const { config, limits, person = 'Child' } = ctx
       const p = config.people_preferences[person]
       const t = p.tolerances.price
-      const best = willingnessToPay(config, p, 1)
       return (
         <>
           <P>How a {person.toLowerCase()} reacts to your price, as shares of their budget ({money(p.average_expense)}).</P>
-          <List
-            items={[
+          {withHelp(ctx, (help) => {
+            const f = help.people[person]
+            return (
               <>
-                <strong>Below ({pct(t.below)}).</strong> A price more than {pct(t.below)} under their budget looks suspicious: under{' '}
-                {money(cheapFloor(p))} the chance to buy shrinks in proportion to the price, and the day report says “{REASON_TEXT.too_cheap}”.
-              </>,
-              <>
-                <strong>Above ({pct(t.above)}).</strong> How quickly interest fades once you charge more than they would pay. {pct(t.above)} of their budget (
-                {money(t.above * p.average_expense)}) past what they would pay, only about 5% still buy.
-              </>,
-            ]}
-          />
-          <Example>
-            For their favourite cup they would pay {money(best)}: half buy at that price, about 95% at {money(best - t.above * p.average_expense)}, and about
-            5% at {money(best + t.above * p.average_expense)}.
-          </Example>
+                <List
+                  items={[
+                    <>
+                      <strong>Below ({pct(t.below)}).</strong> A price more than {pct(t.below)} under their budget looks suspicious: under {money(f.cheap_floor)}{' '}
+                      the chance to buy shrinks in proportion to the price, and the day report says “{REASON_TEXT.too_cheap}”.
+                    </>,
+                    <>
+                      <strong>Above ({pct(t.above)}).</strong> How quickly interest fades once you charge more than they would pay. {pct(t.above)} of their budget (
+                      {money(f.price_reach)}) past what they would pay, only about 5% still buy.
+                    </>,
+                  ]}
+                />
+                <Example>
+                  For their favourite cup they would pay {money(f.wtp_best)}: half buy at that price, about 95% at {money(f.sure_price)}, and about 5% at{' '}
+                  {money(f.long_shot_price)}.
+                </Example>
+              </>
+            )
+          })}
           <Note>
             Below must be between {pct(limits.price_tolerance_below.min)} and {pct(limits.price_tolerance_below.max)}; above must be more than{' '}
             {pct(limits.price_tolerance_above.min)} and at most {pct(limits.price_tolerance_above.max)}.
@@ -825,9 +797,9 @@ function priceToleranceDoc(): Doc {
 
 const preferredDegrees: Doc = {
   title: ({ person }) => `Favourite temperature${person ? ` (${person})` : ''}`,
-  body: ({ config, person = 'Child' }) => {
+  body: (ctx) => {
+    const { config, person = 'Child' } = ctx
     const p = config.people_preferences[person]
-    const xs = tempSteps(config)
     return (
       <>
         <P>
@@ -835,7 +807,16 @@ const preferredDegrees: Doc = {
           not change whether they buy.
         </P>
         <P>The temperature score is one third of their visitor bonus.</P>
-        <LineChart title="Temperature score" labels={xs.map((x) => `${x}°`)} series={scoreSeries(config, 'temperature', xs, person)} xLabel="Temperature °C" yLabel="Temperature score" fmt="percent" />
+        {withHelp(ctx, (help) => (
+          <LineChart
+            title="Temperature score"
+            labels={help.grids.temperatures.map((x) => `${x}°`)}
+            series={typeSeries((t) => help.people[t].temperature_score, person)}
+            xLabel="Temperature °C"
+            yLabel="Temperature score"
+            fmt="percent"
+          />
+        ))}
         <Note>It must fall inside the temperature range, or the configuration is invalid.</Note>
       </>
     )
@@ -844,7 +825,8 @@ const preferredDegrees: Doc = {
 
 const preferredWeather: Doc = {
   title: ({ person }) => `Favourite weather${person ? ` (${person})` : ''}`,
-  body: ({ config, person = 'Child' }) => {
+  body: (ctx) => {
+    const { config, person = 'Child' } = ctx
     const p = config.people_preferences[person]
     return (
       <>
@@ -853,13 +835,15 @@ const preferredWeather: Doc = {
           otherwise it is 0. It is all or nothing, and adds up to a third of the bonus.
         </P>
         <P>This works on top of the weather’s traffic multiplier, which applies to everyone.</P>
-        <BarChart
-          title={`Expected ${person.toLowerCase()} visitors at ${p.preferred_hour}:00, by weather`}
-          labels={WEATHER_TYPES.map(cap)}
-          series={[{ label: 'Visitors / hour', data: WEATHER_TYPES.map((w) => round2(expectedSpawn(config, p, p.preferred_hour, w, typicalTemp(config, w)))), color: PERSON_SERIES[person] }]}
-          xLabel="Weather (at the middle of its temperature range)"
-          yLabel="Visitors / hour"
-        />
+        {withHelp(ctx, (help) => (
+          <BarChart
+            title={`Expected ${person.toLowerCase()} visitors at ${p.preferred_hour}:00, by weather`}
+            labels={WEATHER_TYPES.map(cap)}
+            series={[{ label: 'Visitors / hour', data: WEATHER_TYPES.map((w) => help.people[person].preferred_hour_spawn[w]), color: PERSON_SERIES[person] }]}
+            xLabel="Weather (at the middle of its temperature range)"
+            yLabel="Visitors / hour"
+          />
+        ))}
       </>
     )
   },
@@ -867,30 +851,53 @@ const preferredWeather: Doc = {
 
 const preferredHour: Doc = {
   title: ({ person }) => `Favourite hour${person ? ` (${person})` : ''}`,
-  body: ({ config, person = 'Child' }) => {
+  body: (ctx) => {
+    const { config, person = 'Child' } = ctx
     const p = config.people_preferences[person]
-    const xs = hours(config)
     return (
       <>
         <P>
           The hour {person.toLowerCase()} customers most like to be out: {p.preferred_hour}:00. Their traffic peaks at this hour and fades towards the far end of
           the opening hours. It is one third of their visitor bonus and does not change whether they buy.
         </P>
-        <LineChart title="Hour score" labels={xs.map((x) => `${x}:00`)} series={scoreSeries(config, 'hour', xs, person)} xLabel="Hour" yLabel="Hour score" fmt="percent" />
+        {withHelp(ctx, (help) => (
+          <LineChart
+            title="Hour score"
+            labels={help.grids.hours.map((x) => `${x}:00`)}
+            series={typeSeries((t) => help.people[t].hour_score, person)}
+            xLabel="Hour"
+            yLabel="Hour score"
+            fmt="percent"
+          />
+        ))}
         <Note>It must be within the opening hours, or the configuration is invalid.</Note>
       </>
     )
   },
 }
 
+/** Each type's score for one ingredient across its recipe range, the selected type drawn thicker. */
+function ingredientChart(ctx: DocCtx, n: RecipeIngredient, person: PersonType): ReactNode {
+  return withHelp(ctx, (help) => (
+    <LineChart
+      title={`${cap(n)} score`}
+      labels={help.grids.per_cup[n]}
+      series={typeSeries((t) => help.people[t].ingredient_score[n], person)}
+      xLabel={`${cap(n)} per cup`}
+      yLabel="Score"
+      fmt="percent"
+    />
+  ))
+}
+
 function preferredIngredient(n: RecipeIngredient): Doc {
   return {
     title: ({ person }) => `Favourite ${n}${person ? ` (${person})` : ''}`,
-    body: ({ config, person = 'Child' }) => {
+    body: (ctx) => {
+      const { config, person = 'Child' } = ctx
       const p = config.people_preferences[person]
       const fav = p[`preferred_${n}`] as number
       const t = p.tolerances[n]
-      const xs = steps(config.min_max_values[n])
       const [low, high] = { ice: ['Needs more ice', 'Too much ice'], sugar: ['Not sweet enough', 'Too sweet'], lemons: ['Needs more lemon', 'Too sour'] }[n]
       return (
         <>
@@ -901,7 +908,7 @@ function preferredIngredient(n: RecipeIngredient): Doc {
           <P>
             When {n} is the reason they refuse, the day report says “{low}” if the cup had too little, or “{high}” if it had too much.
           </P>
-          <LineChart title={`${cap(n)} score`} labels={xs} series={ingredientSeries(config, n, xs, person)} xLabel={`${cap(n)} per cup`} yLabel="Score" fmt="percent" />
+          {ingredientChart(ctx, n, person)}
           <Note>It must fall inside the recipe limits for {n}.</Note>
         </>
       )
@@ -912,11 +919,11 @@ function preferredIngredient(n: RecipeIngredient): Doc {
 function ingredientToleranceDoc(n: RecipeIngredient): Doc {
   return {
     title: ({ person }) => `${cap(n)} tolerance${person ? ` (${person})` : ''}`,
-    body: ({ config, person = 'Child' }) => {
+    body: (ctx) => {
+      const { config, person = 'Child' } = ctx
       const p = config.people_preferences[person]
       const fav = p[`preferred_${n}`] as number
       const t = p.tolerances[n]
-      const xs = steps(config.min_max_values[n])
       return (
         <>
           <P>
@@ -931,7 +938,7 @@ function ingredientToleranceDoc(n: RecipeIngredient): Doc {
               '0 means only the exact favourite amount scores anything.',
             ]}
           />
-          <LineChart title={`${cap(n)} score`} labels={xs} series={ingredientSeries(config, n, xs, person)} xLabel={`${cap(n)} per cup`} yLabel="Score" fmt="percent" />
+          {ingredientChart(ctx, n, person)}
         </>
       )
     },
@@ -942,10 +949,13 @@ function ingredientToleranceDoc(n: RecipeIngredient): Doc {
 
 const ingredientsSection: Doc = {
   title: () => 'Ingredients and spoilage',
-  body: ({ config }) => {
+  body: (ctx) => {
+    const { config } = ctx
     const perishable = INGREDIENTS.filter((n) => !config.ingredients[n].never_perishes)
+    // The chart's x-axis: enough nights to see the slowest ingredient spoil, at most 30.
     const days = Math.min(Math.max(10, ...perishable.map((n) => config.ingredients[n].max_days)), 30)
     const xs = Array.from({ length: days + 1 }, (_, i) => i)
+    const figures = perishable.map((n) => ctx.ingredients?.[n] ?? null)
     return (
       <>
         <P>Every cup uses your recipe’s ice, sugar and lemons, plus one cup. You buy ingredients each morning in whole packs, and bigger packs can carry a discount.</P>
@@ -959,16 +969,20 @@ chance to spoil tonight = 0                              if age ≤ fresh days
                         = (age − fresh) ÷ (max − fresh)  in between
                         = 1                              if age ≥ max days`}</Formula>
         <P>Spoiled units are removed automatically and shown in the day report. The planning screen warns you how many may spoil tonight.</P>
-        {perishable.length ? (
-          <LineChart
-            title="Share of a batch still good, if none of it is sold"
-            labels={xs.map((x) => (x === 0 ? 'Bought' : `Night ${x}`))}
-            series={perishable.map((n) => ({ label: cap(n), color: INGREDIENT_SERIES[n], data: xs.map((d) => survival(config.ingredients[n], d)) }))}
-            xLabel="Nights since purchase"
-            yLabel="Still good"
-            fmt="percent"
-          />
-        ) : null}
+        {!perishable.length ? null : figures.every((f) => f !== null) ? (
+          <Figures stale={ctx.stale}>
+            <LineChart
+              title="Share of a batch still good, if none of it is sold"
+              labels={xs.map((x) => (x === 0 ? 'Bought' : `Night ${x}`))}
+              series={perishable.map((n, i) => ({ label: cap(n), color: INGREDIENT_SERIES[n], data: figures[i]!.survival.slice(0, days + 1) }))}
+              xLabel="Nights since purchase"
+              yLabel="Still good"
+              fmt="percent"
+            />
+          </Figures>
+        ) : (
+          <Waiting ctx={ctx} />
+        )}
       </>
     )
   },
@@ -976,9 +990,8 @@ chance to spoil tonight = 0                              if age ≤ fresh days
 
 const unitCost: Doc = {
   title: ({ ingredient }) => `Cost per unit${ingredient ? ` (${ingredient})` : ''}`,
-  body: ({ config, ingredient = 'lemons' }) => {
-    const plan = samplePlan(config)
-    const lines = [...RECIPE_INGREDIENTS.map((n) => [cap(n), plan.recipe[n], config.ingredients[n].unit_cost] as const), ['Cups', 1, config.ingredients.cups.unit_cost] as const]
+  body: (ctx) => {
+    const { config, ingredient = 'lemons' } = ctx
     return (
       <>
         <P>
@@ -991,32 +1004,32 @@ ${COST_RULE}`}</Formula>
           So the cost per cup comes from the stock you actually hold, at the price you paid for it. Cheap bulk stock lowers it, and so does using up older stock
           bought at a discount. The planning screen shows it for the plan you are making.
         </P>
-        <Example title="A mid-range cup on day 1">
-          <Table head={['Ingredient', 'Units per cup', 'List price per unit']} rows={lines.map(([name, qty, c]) => [name, qty, money(c)])} />
-          <p className="mt-2">
-            <CupCostExample config={config} purchases={onePackOfEach(config, 'smallest')} recipe={plan.recipe}>
-              {(c) =>
-                c.cost_per_cup === null ? (
+        {withHelp(ctx, (help) => {
+          const { smallest, biggest, usage } = help.cup_cost
+          return (
+            <Example title="A mid-range cup on day 1">
+              <Table
+                head={['Ingredient', 'Units per cup', 'List price per unit']}
+                rows={INGREDIENTS.map((n) => [cap(n), usage[n], money(config.ingredients[n].unit_cost)])}
+              />
+              <p className="mt-2">
+                {smallest.cost_per_cup === null ? (
                   'One smallest pack of each ingredient does not make a single cup of this recipe.'
                 ) : (
                   <>
-                    One smallest pack of each ingredient makes {c.cups_possible} cups at <strong>{money(c.cost_per_cup)}</strong> a cup. Selling at{' '}
-                    {money(plan.price)} leaves <strong>{money(plan.price - c.cost_per_cup)}</strong> per cup sold.{' '}
+                    One smallest pack of each ingredient makes {smallest.cups_possible} cups at <strong>{money(smallest.cost_per_cup)}</strong> a cup. Selling at{' '}
+                    {money(help.plans.sample.price)} leaves <strong>{money(smallest.margin_per_cup ?? 0)}</strong> per cup sold.{' '}
                   </>
-                )
-              }
-            </CupCostExample>
-            <CupCostExample config={config} purchases={onePackOfEach(config, 'biggest')} recipe={plan.recipe}>
-              {(c) =>
-                c.cost_per_cup === null ? null : (
+                )}
+                {biggest.cost_per_cup === null ? null : (
                   <>
-                    One biggest pack of each makes {c.cups_possible} cups at <strong>{money(c.cost_per_cup)}</strong> a cup.
+                    One biggest pack of each makes {biggest.cups_possible} cups at <strong>{money(biggest.cost_per_cup)}</strong> a cup.
                   </>
-                )
-              }
-            </CupCostExample>
-          </p>
-        </Example>
+                )}
+              </p>
+            </Example>
+          )
+        })}
       </>
     )
   },
@@ -1024,12 +1037,10 @@ ${COST_RULE}`}</Formula>
 
 const packs: Doc = {
   title: ({ ingredient }) => `Packs on sale${ingredient ? ` (${ingredient})` : ''}`,
-  body: ({ config, limits, ingredient = 'lemons' }) => {
+  body: (ctx) => {
+    const { config, limits, ingredient = 'lemons' } = ctx
     const cfg = config.ingredients[ingredient]
-    const small = smallestPack(cfg)
-    const big = biggestPack(cfg)
-    const smallUnit = packPrice(cfg, small) / small.size
-    const breakEven = smallUnit > 0 ? breakEvenUnits(packPrice(cfg, big), smallUnit) : 0
+    const shares = ctx.help?.pack_cash_share[ingredient]
     return (
       <>
         <P>
@@ -1044,36 +1055,34 @@ const packs: Doc = {
             'A warning appears when a bigger pack costs more per unit than a smaller one. It is allowed, but players will rarely buy that pack.',
           ]}
         />
-        <BarChart
-          title={`${cap(ingredient)}: price per unit by pack`}
-          labels={cfg.packs.map((p) => `${p.size}`)}
-          series={[{ label: 'Price per unit', data: cfg.packs.map((p) => packPrice(cfg, p) / p.size), color: INGREDIENT_SERIES[ingredient] }]}
-          xLabel="Pack size (units)"
-          yLabel="Price per unit"
-          fmt="money"
-        />
-        <Example title={`Current ${ingredient} packs`}>
-          <Table
-            head={['Pack', 'Discount', 'Price', 'Per unit', 'Share of starting cash']}
-            rows={cfg.packs.map((p) => [
-              `${p.size} units`,
-              pct(p.discount),
-              money(packPrice(cfg, p)),
-              money(packPrice(cfg, p) / p.size),
-              pct(config.starting_cash ? packPrice(cfg, p) / config.starting_cash : 0),
-            ])}
-          />
-        </Example>
-        {big.size > small.size && !cfg.never_perishes ? (
+        {withIngredient(ctx, ingredient, (f) => (
           <>
-            <H>The catch: spoilage</H>
-            <P>
-              A discount only pays off if you use the stock before it spoils. The pack of {big.size} costs {money(packPrice(cfg, big))}. Buying the same
-              units in packs of {small.size} would cost {money(smallUnit)} each, so the big pack is only the better deal if you use at least{' '}
-              <strong>{breakEven}</strong> of its {big.size} units. The rest can spoil and you still come out ahead.
-            </P>
+            <BarChart
+              title={`${cap(ingredient)}: price per unit by pack`}
+              labels={f.packs.map((p) => `${p.size}`)}
+              series={[{ label: 'Price per unit', data: f.packs.map((p) => p.unit_price), color: INGREDIENT_SERIES[ingredient] }]}
+              xLabel="Pack size (units)"
+              yLabel="Price per unit"
+              fmt="money"
+            />
+            <Example title={`Current ${ingredient} packs`}>
+              <Table
+                head={['Pack', 'Discount', 'Price', 'Per unit', 'Share of starting cash']}
+                rows={f.packs.map((p, i) => [`${p.size} units`, pct(p.discount), money(p.price), money(p.unit_price), shares ? pct(shares[i]) : '…'])}
+              />
+            </Example>
+            {f.break_even_units !== null && !cfg.never_perishes ? (
+              <>
+                <H>The catch: spoilage</H>
+                <P>
+                  A discount only pays off if you use the stock before it spoils. The pack of {f.biggest.size} costs {money(f.biggest.price)}. Buying the same
+                  units in packs of {f.smallest.size} would cost {money(f.smallest.unit_price)} each, so the big pack is only the better deal if you use at least{' '}
+                  <strong>{f.break_even_units}</strong> of its {f.biggest.size} units. The rest can spoil and you still come out ahead.
+                </P>
+              </>
+            ) : null}
           </>
-        ) : null}
+        ))}
         <H>Cost and margin per cup</H>
         <Formula>{COST_RULE}</Formula>
         <P>
@@ -1103,10 +1112,12 @@ const neverPerishes: Doc = {
 function spoilageDoc(which: 'fresh_days' | 'max_days'): Doc {
   return {
     title: ({ ingredient }) => `${which === 'fresh_days' ? 'Fresh days' : 'Max days'}${ingredient ? ` (${ingredient})` : ''}`,
-    body: ({ config, ingredient = 'lemons' }) => {
+    body: (ctx) => {
+      const { config, ingredient = 'lemons' } = ctx
       const cfg = config.ingredients[ingredient]
+      // The charts' x-axis: every night up to max days, at most 30.
       const days = Math.min(Math.max(cfg.max_days, 1), 30)
-      const xs = Array.from({ length: days }, (_, i) => i + 1)
+      const nights = Array.from({ length: days }, (_, i) => i + 1)
       return (
         <>
           {which === 'fresh_days' ? (
@@ -1120,27 +1131,33 @@ function spoilageDoc(which: 'fresh_days' | 'max_days'): Doc {
           <Formula>{`chance to spoil on night d = (d − ${cfg.fresh_days}) ÷ (${cfg.max_days} − ${cfg.fresh_days})   between the two
                            = 0 up to night ${cfg.fresh_days}, 1 from night ${cfg.max_days}`}</Formula>
           <P>Fresh days must be less than max days. Between the two, the nightly chance rises in a straight line.</P>
-          <BarChart
-            title={`${cap(ingredient)}: chance to spoil each night`}
-            labels={xs.map((d) => `Night ${d}`)}
-            series={[{ label: 'Chance to spoil', data: xs.map((d) => hazard(cfg, d)), color: '#eb6834' }]}
-            xLabel="Nights since purchase"
-            yLabel="Chance"
-            fmt="percent"
-          />
-          <LineChart
-            title={`${cap(ingredient)}: share of a batch still good`}
-            labels={xs.map((d) => `Night ${d}`)}
-            series={[{ label: 'Still good', data: xs.map((d) => survival(cfg, d)), color: INGREDIENT_SERIES[ingredient] }]}
-            xLabel="Nights since purchase"
-            yLabel="Still good"
-            fmt="percent"
-          />
-          <Example>
-            Buy 100 {ingredient} and sell none: after night {Math.min(cfg.fresh_days + 1, cfg.max_days)} you would have about{' '}
-            <strong>{Math.round(100 * survival(cfg, Math.min(cfg.fresh_days + 1, cfg.max_days)))}</strong> left, and after night{' '}
-            {Math.min(cfg.fresh_days + 2, cfg.max_days)} about <strong>{Math.round(100 * survival(cfg, Math.min(cfg.fresh_days + 2, cfg.max_days)))}</strong>.
-          </Example>
+          {withIngredient(ctx, ingredient, (f) => {
+            const [first, second] = f.example_batch.after
+            return (
+              <>
+                <BarChart
+                  title={`${cap(ingredient)}: chance to spoil each night`}
+                  labels={nights.map((d) => `Night ${d}`)}
+                  series={[{ label: 'Chance to spoil', data: f.hazard.slice(0, days), color: '#eb6834' }]}
+                  xLabel="Nights since purchase"
+                  yLabel="Chance"
+                  fmt="percent"
+                />
+                <LineChart
+                  title={`${cap(ingredient)}: share of a batch still good`}
+                  labels={nights.map((d) => `Night ${d}`)}
+                  series={[{ label: 'Still good', data: f.survival.slice(1, days + 1), color: INGREDIENT_SERIES[ingredient] }]}
+                  xLabel="Nights since purchase"
+                  yLabel="Still good"
+                  fmt="percent"
+                />
+                <Example>
+                  Buy {f.example_batch.size} {ingredient} and sell none: after night {first.night} you would have about <strong>{first.left}</strong> left, and
+                  after night {second.night} about <strong>{second.left}</strong>.
+                </Example>
+              </>
+            )
+          })}
         </>
       )
     },

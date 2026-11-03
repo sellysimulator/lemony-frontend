@@ -1,7 +1,6 @@
 import type { ReactElement, ReactNode } from 'react'
 import { Plus, Trash2, TriangleAlert } from 'lucide-react'
-import type { IngredientConfig, Limits, PackOption } from '../../types/game'
-import { packPrice } from '../../game/configMath'
+import type { IngredientConfig, Limits, PackOffer, PackOption } from '../../types/game'
 import { money, pct } from '../../utils/format'
 import { NumberField } from './fields'
 
@@ -17,29 +16,24 @@ function nextPack(packs: PackOption[], maxSize: number): PackOption {
   return { size, discount: biggest.discount }
 }
 
-/** Hints that do not block the game but usually mean a typo. The server reports the hard errors. */
-function warnings(cfg: IngredientConfig): Map<number, string> {
-  const out = new Map<number, string>()
-  cfg.packs.forEach((p, i) => {
-    if (cfg.packs.some((q, j) => j !== i && q.size === p.size)) {
-      out.set(i, `There is already a pack of ${p.size}.`)
-      return
-    }
-    const perUnit = packPrice(cfg, p) / p.size
-    const smaller = cfg.packs.filter((q) => q.size < p.size && packPrice(cfg, q) / q.size < perUnit - 1e-9)
-    if (smaller.length) {
-      const best = smaller.reduce((a, b) => (b.discount > a.discount ? b : a))
-      out.set(i, `Costs more per unit than the pack of ${best.size}, so players will rarely buy it.`)
-    }
-  })
-  return out
-}
-
-/** The server's limits set how many sizes, how big and how deep a discount (`limits` from GET /config/defaults). */
-export default function PacksEditor(props: { cfg: IngredientConfig; limits: Limits; info?: ReactNode; onChange(packs: PackOption[]): void }): ReactElement {
+/**
+ * The packs of one ingredient. The server's limits set how many sizes, how big and how deep a
+ * discount (`limits` from GET /config/defaults); the server prices each pack and warns about one
+ * dearer per unit than a smaller pack (`offers`, from POST /config/preview). `offers` is null
+ * until the server has priced these settings, or while they are invalid (the screen says why).
+ */
+export default function PacksEditor(props: {
+  cfg: IngredientConfig
+  limits: Limits
+  offers: PackOffer[] | null
+  /** The offers are for an earlier edit; newer ones are on their way. */
+  stale?: boolean
+  info?: ReactNode
+  onChange(packs: PackOption[]): void
+}): ReactElement {
   const { cfg, limits } = props
   const maxPacks = limits.packs.max
-  const hints = warnings(cfg)
+  const offerFor = (size: number) => props.offers?.find((o) => o.size === size) ?? null
   const set = (i: number, patch: Partial<PackOption>) => props.onChange(cfg.packs.map((p, j) => (j === i ? { ...p, ...patch } : p)))
 
   return (
@@ -50,8 +44,7 @@ export default function PacksEditor(props: { cfg: IngredientConfig; limits: Limi
       </div>
       <ul className="mt-2 space-y-2">
         {cfg.packs.map((pack, i) => {
-          const price = packPrice(cfg, pack)
-          const hint = hints.get(i)
+          const offer = offerFor(pack.size)
           return (
             <li key={i} className="rounded-lg border border-border bg-surface-sunken/40 p-3">
               <div className="grid grid-cols-[1fr_1fr_auto] items-end gap-2">
@@ -84,13 +77,19 @@ export default function PacksEditor(props: { cfg: IngredientConfig; limits: Limi
                   <Trash2 aria-hidden className="size-4" />
                 </button>
               </div>
-              <p className="mt-2 text-sm tabular-nums">
-                <strong>{money(price)}</strong> per pack · {money(pack.size ? price / pack.size : 0)} per unit
-                {pack.discount > 0 ? <span className="font-semibold text-good"> (saves {money(pack.size * cfg.unit_cost - price)}, {pct(pack.discount)} off)</span> : null}
+              <p className={`mt-2 text-sm tabular-nums ${props.stale ? 'opacity-50' : ''}`} aria-busy={props.stale}>
+                {offer ? (
+                  <>
+                    <strong>{money(offer.price)}</strong> per pack · {money(offer.unit_price)} per unit
+                    {offer.discount > 0 ? <span className="font-semibold text-good"> (saves {money(offer.saving)}, {pct(offer.discount)} off)</span> : null}
+                  </>
+                ) : (
+                  <span className="text-ink-muted">… per pack</span>
+                )}
               </p>
-              {hint ? (
+              {offer?.dearer_than != null ? (
                 <p className="mt-1 flex items-start gap-1.5 text-sm text-warn">
-                  <TriangleAlert aria-hidden className="mt-0.5 size-4 shrink-0" /> {hint}
+                  <TriangleAlert aria-hidden className="mt-0.5 size-4 shrink-0" /> Costs more per unit than the pack of {offer.dearer_than}, so players will rarely buy it.
                 </p>
               ) : null}
             </li>

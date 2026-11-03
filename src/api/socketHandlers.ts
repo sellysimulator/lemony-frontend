@@ -123,13 +123,13 @@ export function submitDay(plan: DayPlanPayload): void {
 
 let previewCount = 0
 
-/** Asks the server for the what-if curve of this plan. Only the latest request's reply is kept. */
+/** Asks the server for the what-if curve and every figure of this plan, at this price. Only the latest request's reply is kept. */
 export function previewPlan(plan: PlanPreviewRequest): void {
   const { gameId, state } = useGameStore.getState()
   if (!gameId || !state) return
   const requestId = `p${Date.now().toString(36)}-${++previewCount}`
   useGameStore.getState().beginPlanPreview(requestId)
-  socket.emit('preview_plan', { request_id: requestId, game_id: gameId, day: state.day, purchases: plan.purchases, recipe: plan.recipe })
+  socket.emit('preview_plan', { request_id: requestId, game_id: gameId, day: state.day, purchases: plan.purchases, recipe: plan.recipe, price: plan.price })
 }
 
 export function acknowledgeDay(day: number): void {

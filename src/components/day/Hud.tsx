@@ -1,13 +1,15 @@
 import type { ReactElement } from 'react'
 import { usePlayback } from '../../store/playback'
-import { SPEEDS, revealedCount, tally } from '../../game/timeline'
+import { SPEEDS, revealedCount, salesSoFar, tally } from '../../game/timeline'
 import type { CustomerEvent } from '../../types/game'
 import { Pause, Play, SkipForward } from 'lucide-react'
 import { clockLabel, money } from '../../utils/format'
 
-export default function Hud(props: { events: CustomerEvent[]; price: number; openMin: number; closeMin: number }): ReactElement {
+export default function Hud(props: { events: CustomerEvent[]; openMin: number; closeMin: number }): ReactElement {
   const { clock, speed, paused, end, setSpeed, togglePause, skipToEnd } = usePlayback()
-  const t = tally(props.events, revealedCount(props.events, clock))
+  const revealed = revealedCount(props.events, clock)
+  const t = tally(props.events, revealed)
+  const sales = salesSoFar(props.events, revealed)
   const status = clock < props.openMin ? 'Opening soon' : clock < props.closeMin ? 'Open' : 'Closed'
   const progress = Math.min(1, Math.max(0, (clock - props.openMin) / (props.closeMin - props.openMin)))
 
@@ -52,7 +54,7 @@ export default function Hud(props: { events: CustomerEvent[]; price: number; ope
           </div>
           <div>
             <div className="text-xs text-ink-muted">Sales</div>
-            <div className="font-bold tabular-nums">{money(t.buyers * props.price)}</div>
+            <div className="font-bold tabular-nums">{sales === null ? '–' : money(sales)}</div>
           </div>
         </div>
       </div>

@@ -37,8 +37,9 @@ export interface WatchedDay {
 export interface PlanPreviewSlice {
   requestId: string | null
   reply: PlanPreviewOk | null
-  /** The server refused the latest request; the plan's own validation explains why. */
+  /** The server refused the latest request; `message` is its reason, shown as is. */
   refused: boolean
+  message?: string | null
   waiting: boolean
 }
 
@@ -219,8 +220,9 @@ export const useGameStore = create<GameStoreState & GameStoreActions>((set, get)
 
     handlePlanPreview(event) {
       if (!event || event.request_id !== get().planPreview.requestId) return
-      if ('error' in event && event.error) set({ planPreview: { requestId: event.request_id, reply: null, refused: true, waiting: false } })
-      else set({ planPreview: { requestId: event.request_id, reply: event as PlanPreviewOk, refused: false, waiting: false } })
+      if ('error' in event && event.error)
+        set({ planPreview: { requestId: event.request_id, reply: null, refused: true, message: event.error.message, waiting: false } })
+      else set({ planPreview: { requestId: event.request_id, reply: event as PlanPreviewOk, refused: false, message: null, waiting: false } })
     },
 
     setView(view) {

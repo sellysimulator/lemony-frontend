@@ -27,9 +27,9 @@ export default function GameCharts(props: { summary: GameSummary; onSelectDay?: 
       <PriceSuccessChart days={days} onSelectDay={props.onSelectDay} />
       <OutcomesChart days={days} plugins={plugins} />
       <TypeConversionChart days={days} plugins={plugins} />
-      {hasPopularity ? <PopularityChart days={days} plugins={plugins} /> : null}
-      <SpoilagePanels days={days} plugins={plugins} />
-      <TrafficByHour days={days} />
+      {hasPopularity ? <PopularityChart days={days} plugins={plugins} neutral={props.summary.neutral_popularity} /> : null}
+      <SpoilagePanels days={days} plugins={plugins} summary={props.summary} />
+      <TrafficByHour days={days} totals={props.summary.hour_totals} />
       <TypeVisitorsChart days={days} plugins={plugins} />
     </div>
   )

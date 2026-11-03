@@ -9,27 +9,27 @@ import { pct } from '../../../utils/format'
 import { DAY_AXIS } from './config'
 import { forChart, type DayChartProps } from './shared'
 
-const ITEMS = [
-  { key: 'popularity', label: 'Popularity', swatch: { kind: 'line' as const, color: SINGLE } },
-  { key: 'success', label: 'Success rate', swatch: { kind: 'line' as const, color: OUTCOME_SERIES.bought } },
-  { key: 'neutral', label: 'Neutral (50%)', swatch: { kind: 'line' as const, color: NEUTRAL, dash: [5, 4] } },
-]
-
-/** The 50% neutral line is a `referenceRule`, so it is no dataset: not in the tooltips and not in the table. */
-export default function PopularityChart({ days, plugins }: DayChartProps): ReactElement {
+/** The server's neutral popularity is a `referenceRule`, so it is no dataset: not in the tooltips and not in the table. */
+export default function PopularityChart({ days, plugins, neutral }: DayChartProps & { neutral: number }): ReactElement {
+  const neutralLabel = `Neutral (${pct(neutral)})`
+  const items = [
+    { key: 'popularity', label: 'Popularity', swatch: { kind: 'line' as const, color: SINGLE } },
+    { key: 'success', label: 'Success rate', swatch: { kind: 'line' as const, color: OUTCOME_SERIES.bought } },
+    { key: 'neutral', label: neutralLabel, swatch: { kind: 'line' as const, color: NEUTRAL, dash: [5, 4] } },
+  ]
   const base = baseOptions<'line'>({ percent: true, xLabel: DAY_AXIS, yLabel: 'Popularity and success rate' })
   const options = {
     ...base,
     scales: { ...base.scales, y: { ...base.scales?.y, max: 1 } },
-    plugins: { ...base.plugins, referenceRule: { rules: [{ value: 0.5, label: 'Neutral (50%)', color: NEUTRAL }] } },
+    plugins: { ...base.plugins, referenceRule: { rules: [{ value: neutral, label: neutralLabel, color: NEUTRAL }] } },
   } as unknown as ChartOptions<'line'>
   return (
     <ChartBox
       title="Popularity and success rate by day"
-      legend={<Legend items={ITEMS} />}
+      legend={<Legend items={items} />}
       table={{
         head: ['Day', 'Popularity applied', 'Buy chance ×', 'Success rate'],
-        rows: days.map((d) => [d.day, d.popularity == null ? '—' : pct(d.popularity), d.popularity == null ? '—' : `×${(0.5 + d.popularity).toFixed(2)}`, pct(d.conversion)]),
+        rows: days.map((d) => [d.day, d.popularity == null ? '—' : pct(d.popularity), d.popularity_factor == null ? '—' : `×${d.popularity_factor.toFixed(2)}`, pct(d.conversion)]),
       }}
     >
       <Line

@@ -14,11 +14,12 @@ vi.mock('../api/socketHandlers', () => ({ acknowledgeDay: vi.fn() }))
 const TYPES: PersonType[] = ['Child', 'Teenager', 'Adult', 'Senior']
 
 function record(over: Partial<DayRecord> = {}): DayRecord {
+  // Each type's success rate is the server's (`conversion`), as it sends it.
   const by_type = {
-    Child: { visitors: 10, buyers: 5, sold_out: 0 },
-    Teenager: { visitors: 40, buyers: 10, sold_out: 0 },
-    Adult: { visitors: 20, buyers: 15, sold_out: 0 },
-    Senior: { visitors: 4, buyers: 1, sold_out: 0 },
+    Child: { visitors: 10, buyers: 5, sold_out: 0, conversion: 0.5 },
+    Teenager: { visitors: 40, buyers: 10, sold_out: 0, conversion: 0.25 },
+    Adult: { visitors: 20, buyers: 15, sold_out: 0, conversion: 0.75 },
+    Senior: { visitors: 4, buyers: 1, sold_out: 0, conversion: 0.25 },
   }
   return {
     day: 2,
@@ -37,11 +38,14 @@ function record(over: Partial<DayRecord> = {}): DayRecord {
     refused: 43,
     conversion: 31 / 74,
     popularity: 0.5,
+    popularity_factor: 1,
     perished: { ice: 0, sugar: 0, lemons: 0, cups: 0 },
     perished_value: 0,
+    cash_start: 95,
     cash_end: 100,
+    cups_open: null,
     by_type,
-    by_hour: [{ hour: 9, visitors: 74, buyers: 31, sold_out: 0 }],
+    by_hour: [{ hour: 9, visitors: 74, buyers: 31, sold_out: 0, refused: 43, conversion: 0.4189 }],
     refusal_reasons: { too_sweet: 3, too_pricey: 12, too_much_ice: 7 },
     ...over,
   } as DayRecord
@@ -138,10 +142,21 @@ describe('DayReport: by customer type', () => {
 
   it('shows a dash for the success rate of a type with no visitors', () => {
     const r = record()
-    r.by_type.Senior = { visitors: 0, buyers: 0, sold_out: 0 }
+    r.by_type.Senior = { visitors: 0, buyers: 0, sold_out: 0, conversion: null }
     renderReport(r)
     const senior = bars('Visitors by customer type').find((x) => x.textContent?.includes('Senior'))!
     expect(senior.textContent).toContain('—')
+  })
+})
+
+describe('DayReport: server figures only', () => {
+  it("shows each type's success rate as the server sent it, not buyers over visitors", () => {
+    const r = record()
+    r.by_type.Child = { ...r.by_type.Child, conversion: 0.12 }
+    renderReport(r)
+    const child = bars('Visitors by customer type').find((x) => x.textContent?.includes('Child'))!
+    expect(child.textContent).toContain('12%')
+    expect(child.textContent).not.toContain('50%')
   })
 })
 

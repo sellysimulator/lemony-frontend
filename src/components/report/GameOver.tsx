@@ -20,7 +20,7 @@ export function SummaryTiles(props: { summary: GameSummary }): ReactElement {
       <Stat label="Visitors" value={s.total_visitors} />
       <Stat
         label="Success rate"
-        value={s.total_visitors ? pct(s.total_buyers / s.total_visitors) : '—'}
+        value={s.conversion == null ? '—' : pct(s.conversion)}
         hint="All cups sold ÷ all visitors of the game, so a busy day weighs more"
       />
       <Stat

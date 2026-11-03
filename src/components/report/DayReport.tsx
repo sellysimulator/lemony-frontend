@@ -99,7 +99,7 @@ export default function DayReport(props: { watch: WatchedDay; state: GameState }
                 datasets: [
                   { label: 'Bought', data: record.by_hour.map((h) => h.buyers), ...barStyle(OUTCOME_SERIES.bought) },
                   { label: 'Sold out', data: record.by_hour.map((h) => h.sold_out), ...barStyle(OUTCOME_SERIES.sold_out) },
-                  { label: 'Refused', data: record.by_hour.map((h) => h.visitors - h.buyers - h.sold_out), ...barStyle(OUTCOME_SERIES.refused) },
+                  { label: 'Refused', data: record.by_hour.map((h) => h.refused), ...barStyle(OUTCOME_SERIES.refused) },
                 ],
               }}
               options={baseOptions<'bar'>({ stacked: true, yLabel: 'people' })}
@@ -160,7 +160,7 @@ export default function DayReport(props: { watch: WatchedDay; state: GameState }
                   color={PERSON_SERIES[t]}
                   figure={
                     <>
-                      {st.visitors} <span className="font-normal text-ink-muted">· {st.visitors ? pct(st.buyers / st.visitors) : '—'}</span>
+                      {st.visitors} <span className="font-normal text-ink-muted">· {st.conversion == null ? '—' : pct(st.conversion)}</span>
                     </>
                   }
                 />

@@ -9,9 +9,8 @@ import InfoButton from '../components/config/docs/InfoButton'
 import PacksEditor from '../components/config/PacksEditor'
 import { DocsConfigContext } from '../components/config/docs/docsContext'
 import { IngredientIcon, PersonIcon, WeatherIcon } from '../components/shared/icons'
-import { hazard } from '../game/configMath'
 import { errorMessage } from '../api/http'
-import { getConfigDefaults, validateConfig } from '../api/rest'
+import { getConfigDefaults, getConfigPreview } from '../api/rest'
 import { createGame } from '../api/socketHandlers'
 import { useGameStore } from '../store/gameStore'
 import {
@@ -19,6 +18,7 @@ import {
   PERSON_TYPES,
   RECIPE_INGREDIENTS,
   WEATHER_TYPES,
+  type ConfigPreview,
   type GameConfig,
   type IngredientConfig,
   type Limits,
@@ -30,17 +30,19 @@ import {
 import { money } from '../utils/format'
 import type { RouteDescriptor } from '../routes/registry'
 
-const VALIDATE_DEBOUNCE_MS = 400
+const PREVIEW_DEBOUNCE_MS = 400
 
-function HazardPreview(props: { cfg: IngredientConfig }): ReactElement {
-  // Show at least a few nights past max days, so a one-night ingredient (ice) still reads as a ramp to 100%.
+/** The server's nightly chance to spoil (`hazard[n - 1]` for night n), as small bars; empty until it arrives. */
+function HazardPreview(props: { cfg: IngredientConfig; hazard: number[] | null; stale: boolean }): ReactElement {
+  // The x-axis: at least a few nights past max days, so a one-night ingredient (ice) still reads as a ramp to 100%.
   const days = Math.min(Math.max(props.cfg.max_days + 1, 4), 14)
+  const hazard = props.hazard
   return (
-    <figure className="rounded-lg bg-surface-sunken/60 p-3" aria-label="Nightly chance to spoil by age">
-      <figcaption className="mb-2 text-xs font-semibold">Nightly chance to spoil</figcaption>
+    <figure className={`rounded-lg bg-surface-sunken/60 p-3 ${props.stale ? 'opacity-50' : ''}`} aria-label="Nightly chance to spoil by age" aria-busy={props.stale || !hazard}>
+      <figcaption className="mb-2 text-xs font-semibold">Nightly chance to spoil{hazard ? '' : ' …'}</figcaption>
       <div className="flex h-12 items-end gap-0.5">
         {Array.from({ length: days }, (_, i) => {
-          const p = hazard(props.cfg, i + 1)
+          const p = hazard?.[i] ?? 0
           return (
             <div
               key={i}
@@ -101,16 +103,13 @@ function ConfigPage(): ReactElement {
   const [limits, setLimits] = useState<Limits | null>(null)
   const [config, setConfig] = useState<GameConfig | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
-  // The verdict is tagged with the config it was computed for; any edit makes it stale ("checking").
-  const [validity, setValidity] = useState<{
+  // The server's verdict and figures, tagged with the config they were computed for; any edit
+  // makes them stale ("checking"), and the figures stay on screen, dimmed, until the next reply.
+  const [preview, setPreview] = useState<{
     for: GameConfig | null
-    valid: boolean
-    message: string | null
-  }>({
-    for: null,
-    valid: true,
-    message: null,
-  })
+    reply: ConfigPreview | null
+    error: string | null
+  }>({ for: null, reply: null, error: null })
   const { creating, justCreated, lastError } = useGameStore()
 
   useEffect(() => {
@@ -123,21 +122,22 @@ function ConfigPage(): ReactElement {
       .catch((err) => setLoadError(errorMessage(err, 'Could not load the default configuration.')))
   }, [handed])
 
-  // The server owns the rules: validate against it, never re-implement them here.
+  // The server owns the rules and every figure: ask it, never re-implement them here.
   useEffect(() => {
     if (!config) return
+    let live = true
     const timer = setTimeout(() => {
-      validateConfig(config)
-        .then((r) => setValidity({ for: config, valid: r.valid, message: r.message }))
-        .catch((err) =>
-          setValidity({
-            for: config,
-            valid: false,
-            message: errorMessage(err, 'Some values are not valid numbers.'),
-          }),
+      getConfigPreview(config)
+        .then((reply) => live && setPreview({ for: config, reply, error: null }))
+        .catch(
+          (err) =>
+            live && setPreview((prev) => ({ for: config, reply: prev.reply, error: errorMessage(err, 'Some values are not valid numbers.') })),
         )
-    }, VALIDATE_DEBOUNCE_MS)
-    return () => clearTimeout(timer)
+    }, PREVIEW_DEBOUNCE_MS)
+    return () => {
+      live = false
+      clearTimeout(timer)
+    }
   }, [config])
 
   useEffect(() => {
@@ -188,12 +188,15 @@ function ConfigPage(): ReactElement {
       c.ingredients[name][key] = value
     })
 
-  const checking = validity.for !== config
-  const canStart = validity.valid && !checking && !creating
+  const checking = preview.for !== config
+  const valid = !preview.error && preview.reply?.valid === true
+  const message = preview.error ?? preview.reply?.message ?? null
+  const canStart = valid && !checking && !creating
+  const figures = preview.reply
 
   return (
     <Layout>
-      <DocsConfigContext.Provider value={{ config, limits }}>
+      <DocsConfigContext.Provider value={{ config, limits, preview: figures, stale: checking }}>
         <div className="mx-auto max-w-3xl">
           <div className="mb-6 flex flex-wrap items-end gap-4">
             <div className="min-w-0 flex-1">
@@ -503,7 +506,14 @@ function ConfigPage(): ReactElement {
                             info={<InfoButton doc="unit_cost" ingredient={name} />}
                             onChange={(v) => setIngredient(name, 'unit_cost', v)}
                           />
-                          <PacksEditor cfg={cfg} limits={limits} info={<InfoButton doc="packs" ingredient={name} />} onChange={(packs) => setIngredient(name, 'packs', packs)} />
+                          <PacksEditor
+                            cfg={cfg}
+                            limits={limits}
+                            offers={figures?.ingredients[name]?.packs ?? null}
+                            stale={checking}
+                            info={<InfoButton doc="packs" ingredient={name} />}
+                            onChange={(packs) => setIngredient(name, 'packs', packs)}
+                          />
                         </FieldGroup>
                         <FieldGroup title="Spoilage">
                           <CheckboxField
@@ -532,7 +542,7 @@ function ConfigPage(): ReactElement {
                                 info={<InfoButton doc="max_days" ingredient={name} />}
                                 onChange={(v) => setIngredient(name, 'max_days', Math.round(v))}
                               />
-                              <HazardPreview cfg={cfg} />
+                              <HazardPreview cfg={cfg} hazard={figures?.ingredients[name]?.hazard ?? null} stale={checking} />
                             </>
                           )}
                         </FieldGroup>
@@ -550,13 +560,13 @@ function ConfigPage(): ReactElement {
                 <span className="inline-flex items-center gap-2 text-ink-muted">
                   <LoaderCircle aria-hidden className="size-4 animate-spin" /> Checking…
                 </span>
-              ) : validity.valid ? (
+              ) : valid ? (
                 <span className="inline-flex items-center gap-2 text-good">
                   <CircleCheck aria-hidden className="size-4" /> Configuration is valid
                 </span>
               ) : (
                 <span className="inline-flex items-start gap-2 text-bad">
-                  <CircleX aria-hidden className="mt-0.5 size-4 shrink-0" /> {validity.message}
+                  <CircleX aria-hidden className="mt-0.5 size-4 shrink-0" /> {message}
                 </span>
               )}
             </div>

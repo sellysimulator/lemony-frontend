@@ -33,12 +33,20 @@ const last = (pred: (c: Drawn) => boolean): Drawn => {
 }
 
 const zero = { ice: 0, sugar: 0, lemons: 0, cups: 0 }
-const hr = (hour: number, visitors: number, buyers: number) => ({ hour, visitors, buyers, sold_out: 0 })
-const types = (v: number, b: number) => ({
-  Child: { visitors: v, buyers: b, sold_out: 0 },
-  Teenager: { visitors: v, buyers: b, sold_out: 0 },
-  Adult: { visitors: v, buyers: b, sold_out: 0 },
-  Senior: { visitors: v, buyers: b, sold_out: 0 },
+// Server-shaped stats: `refused` and `conversion` are fields the server sends with them.
+const hr = (hour: number, visitors: number, buyers: number, conversion: number | null = visitors ? buyers / visitors : null) => ({
+  hour,
+  visitors,
+  buyers,
+  sold_out: 0,
+  refused: visitors - buyers,
+  conversion,
+})
+const types = (v: number, b: number, conversion: number | null = v ? b / v : null) => ({
+  Child: { visitors: v, buyers: b, sold_out: 0, conversion },
+  Teenager: { visitors: v, buyers: b, sold_out: 0, conversion },
+  Adult: { visitors: v, buyers: b, sold_out: 0, conversion },
+  Senior: { visitors: v, buyers: b, sold_out: 0, conversion },
 })
 
 // cash_end values are deliberately NOT start + running sum of profit.
@@ -60,9 +68,12 @@ const day = (over: Partial<DayRecord>): DayRecord =>
     refused: 3,
     conversion: 0.625,
     popularity: 0.5,
+    popularity_factor: 1,
     perished: zero,
     perished_value: 0,
+    cash_start: 100,
     cash_end: 105,
+    cups_open: null,
     by_type: types(2, 1),
     by_hour: [hr(9, 4, 2), hr(10, 4, 3)],
     refusal_reasons: {},
@@ -74,6 +85,8 @@ const DAYS: DayRecord[] = [
   day({
     day: 2,
     popularity: 0.6,
+    popularity_factor: 1.1,
+    cash_start: 105,
     weather: 'rainy',
     temperature: 11,
     price: 0.75,
@@ -90,6 +103,8 @@ const DAYS: DayRecord[] = [
   day({
     day: 3,
     popularity: 0.4,
+    popularity_factor: 0.9,
+    cash_start: 98,
     weather: 'cloudy',
     temperature: 20,
     price: 0.6,
@@ -116,8 +131,16 @@ const SUMMARY = {
   total_visitors: 30,
   total_buyers: 11,
   total_sold_out: 0,
+  conversion: 0.3667,
   final_popularity: 0.5,
+  neutral_popularity: 0.5,
   perished_totals: zero,
+  // 1.25 + 2.5 + 0.75, added up by the server.
+  total_perished_value: 4.5,
+  hour_totals: [
+    { hour: 9, visitors: 14, buyers: 7, not_bought: 7 },
+    { hour: 10, visitors: 16, buyers: 4, not_bought: 12 },
+  ],
   days: DAYS,
 } as unknown as GameSummary
 
@@ -259,10 +282,12 @@ describe('L4 spoilage panels', () => {
     }
   })
 
-  it('captions the value lost to spoilage', () => {
+  it('captions the value lost to spoilage, as the server added it up', () => {
     render(<GameCharts summary={SUMMARY} />)
-    // 1.25 + 2.5 + 0.75
     expect(screen.getByText(/\$4\.50/)).toBeInTheDocument()
+    drawn.length = 0
+    render(<GameCharts summary={{ ...SUMMARY, total_perished_value: 9.99 }} />)
+    expect(screen.getByText(/\$9\.99/)).toBeInTheDocument()
   })
 })
 
@@ -274,6 +299,21 @@ describe('L5 traffic by hour', () => {
     expect(c.data.datasets.find((d) => d.label === 'Bought')?.data).toEqual([7, 4])
     expect(c.data.datasets.find((d) => d.label === 'Did not buy')?.data).toEqual([7, 12])
     expect(c.data.datasets.some((d) => d.label === 'Visitors')).toBe(false)
+  })
+
+  it("draws the server's hour totals, not a sum of the days", () => {
+    const totals = [{ hour: 9, visitors: 50, buyers: 20, not_bought: 30 }]
+    render(<GameCharts summary={{ ...SUMMARY, hour_totals: totals }} />)
+    const c = last((x) => x.kind === 'bar' && x.data.datasets.some((d) => d.label === 'Did not buy'))
+    expect(c.data.datasets.find((d) => d.label === 'Bought')?.data).toEqual([20])
+    expect(c.data.datasets.find((d) => d.label === 'Did not buy')?.data).toEqual([30])
+  })
+
+  it("prints the server's success rate in each hour cell", () => {
+    const days = [{ ...DAYS[0], by_hour: [hr(9, 4, 2, 0.37), hr(10, 4, 3)] }, ...DAYS.slice(1)]
+    render(<GameCharts summary={{ ...SUMMARY, days }} />)
+    const grid = screen.getAllByRole('table').find((t) => t.textContent?.includes('Success rate') || t.getAttribute('aria-label')?.includes('Success rate'))
+    expect(grid?.textContent).toContain('37%')
   })
 
   it('shows a day by hour grid of success rate, the value in each cell text', () => {
@@ -327,6 +367,23 @@ describe('L7 chart details', () => {
     expect(c.options.plugins.referenceRule.rules.some((r: { value: number }) => r.value === 0.5)).toBe(true)
     expect(c.data.datasets.some((d) => /neutral|50/i.test(d.label ?? ''))).toBe(false)
     expect(c.data.datasets.every((d) => d.data.some((v) => v !== 0.5))).toBe(true)
+  })
+
+  it("puts the neutral line at the server's neutral popularity", () => {
+    render(<GameCharts summary={{ ...SUMMARY, neutral_popularity: 0.6 }} />)
+    const c = last((x) => x.data.datasets.some((d) => d.label === 'Popularity'))
+    expect(c.options.plugins.referenceRule.rules).toEqual([expect.objectContaining({ value: 0.6, label: 'Neutral (60%)' })])
+  })
+
+  it("lists the server's popularity factor and the cash result of each day", () => {
+    render(<GameCharts summary={SUMMARY} />)
+    const popularity = screen.getByText('Popularity and success rate by day').closest('figure') as HTMLElement
+    fireEvent.click(within(popularity).getByRole('button', { name: 'Show table' }))
+    expect(within(popularity).getByRole('table').textContent).toContain('×1.10')
+    const cash = screen.getByText('Cash, day by day').closest('figure') as HTMLElement
+    fireEvent.click(within(cash).getByRole('button', { name: 'Show table' }))
+    // Day 3's cash result is its `profit` (99), not cash_end − cash_start.
+    expect(within(cash).getByRole('table').textContent).toContain('$99.00')
   })
 
   it('gives every x axis a title', () => {

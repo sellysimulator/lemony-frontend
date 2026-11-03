@@ -18,7 +18,7 @@ export function TypeConversionChart({ days, plugins }: DayChartProps): ReactElem
       legend={<Legend items={ITEMS} />}
       table={{
         head: ['Day', ...PERSON_TYPES],
-        rows: days.map((d) => [d.day, ...PERSON_TYPES.map((t) => (d.by_type[t]?.visitors ? pct(d.by_type[t].buyers / d.by_type[t].visitors) : '—'))]),
+        rows: days.map((d) => [d.day, ...PERSON_TYPES.map((t) => (d.by_type[t]?.conversion == null ? '—' : pct(d.by_type[t].conversion)))]),
       }}
     >
       <Line
@@ -26,7 +26,7 @@ export function TypeConversionChart({ days, plugins }: DayChartProps): ReactElem
           labels: days.map((d) => `Day ${d.day}`),
           datasets: PERSON_TYPES.map((t) => ({
             label: t,
-            data: days.map((d) => (d.by_type[t]?.visitors ? d.by_type[t].buyers / d.by_type[t].visitors : null)),
+            data: days.map((d) => d.by_type[t]?.conversion ?? null),
             ...lineStyle(PERSON_SERIES[t]),
             spanGaps: true,
           })),

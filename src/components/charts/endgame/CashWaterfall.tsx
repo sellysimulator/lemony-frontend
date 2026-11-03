@@ -14,7 +14,7 @@ const ITEMS = [
   { key: 'down', label: 'Cash went down', swatch: { kind: 'fill' as const, color: LOSS } },
 ]
 
-/** L3: each bar runs from the cash a day began with to the server's `cash_end`. */
+/** L3: each bar runs from the server's `cash_start` of a day to its `cash_end`; the change is the day's `profit`. */
 export default function CashWaterfall(props: DayChartProps & { summary: GameSummary }): ReactElement {
   const { days, plugins, summary } = props
   const { up, down, spans } = waterfallSpans(summary)
@@ -28,7 +28,8 @@ export default function CashWaterfall(props: DayChartProps & { summary: GameSumm
         callbacks: {
           label: (item: { dataIndex: number }) => {
             const [a, b] = spans[item.dataIndex]
-            return `${money(a)} → ${money(b)} (${b >= a ? '+' : ''}${money(b - a)})`
+            const change = days[item.dataIndex].profit
+            return `${money(a)} → ${money(b)} (${change >= 0 ? '+' : ''}${money(change)})`
           },
         },
       },
@@ -42,7 +43,7 @@ export default function CashWaterfall(props: DayChartProps & { summary: GameSumm
       legend={<Legend items={ITEMS} />}
       table={{
         head: ['Day', 'Cash at start', 'Cash at end', 'Cash result'],
-        rows: days.map((d, i) => [d.day, money(spans[i][0]), money(spans[i][1]), money(spans[i][1] - spans[i][0])]),
+        rows: days.map((d) => [d.day, money(d.cash_start), money(d.cash_end), money(d.profit)]),
       }}
     >
       <Bar

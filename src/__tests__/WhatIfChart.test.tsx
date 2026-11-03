@@ -22,21 +22,10 @@ vi.mock('react-chartjs-2', () => ({
 }))
 
 const previewPlan = vi.hoisted(() => vi.fn())
-vi.mock('../api/socketHandlers', () => ({ submitDay: vi.fn(), previewPlan }))
+const submitDay = vi.hoisted(() => vi.fn())
+vi.mock('../api/socketHandlers', () => ({ submitDay, previewPlan }))
 
-// The demand maths must never run for the what-if curve.
-const demandSpy = vi.hoisted(() => vi.fn())
-vi.mock('../game/configMath', async (importOriginal) => {
-  const real = await importOriginal<Record<string, unknown>>()
-  const wrapped: Record<string, unknown> = {}
-  for (const [k, v] of Object.entries(real)) {
-    wrapped[k] =
-      typeof v === 'function' && /spawn|buyProbability|buyDecision|willingness|quality|popularity|ingredientScore|kernel|score/i.test(k)
-        ? (...a: unknown[]) => (demandSpy(k), (v as (...x: unknown[]) => unknown)(...a))
-        : v
-  }
-  return wrapped
-})
+const allFit = { ice: { '100': true, '300': true, '500': true, '700': true }, sugar: { '100': true, '300': true, '500': true, '700': true }, lemons: { '100': true, '300': true, '500': true, '700': true }, cups: { '100': true, '300': true, '500': true, '700': true } }
 
 // Margins are deliberately not anything a client could derive from the prices.
 const PREVIEW: PlanPreviewOk = {
@@ -49,6 +38,10 @@ const PREVIEW: PlanPreviewOk = {
   expected_margin: [1.11, 3.33, 4.44, 2.22, 0.55],
   cups_possible: 40,
   cost_per_cup: 0.17,
+  spend: 0,
+  cash_after: 100,
+  units: { ice: 0, sugar: 0, lemons: 0, cups: 0 },
+  can_add: allFit,
 }
 
 const last = (): Drawn => {
@@ -65,8 +58,8 @@ const byLabel = (c: Drawn, re: RegExp) => {
 
 beforeEach(() => {
   drawn.length = 0
-  demandSpy.mockClear()
   previewPlan.mockClear()
+  submitDay.mockClear()
   useGameStore.getState().reset()
 })
 afterEach(() => {
@@ -109,6 +102,21 @@ describe('WhatIfChart', () => {
     expect(screen.getByText('$3.33')).toBeInTheDocument()
   })
 
+  it('shows the server figures at exactly the price charged, off the grid', () => {
+    const at = { chance: 0.61, expected_cups: 18.75, expected_margin: 3.91, margin_per_cup: 0.16, margin_share: 0.4848 }
+    render(<WhatIfChart preview={{ ...PREVIEW, price: 0.33, price_error: null, at_price: at }} price={0.33} waiting={false} />)
+    const tiles = screen.getByTestId('what-if').textContent ?? ''
+    expect(tiles).toContain('61%')
+    expect(tiles).toContain('18.75')
+    expect(tiles).toContain('$3.91')
+    expect(marked(byLabel(last(), /your price/i))).toEqual([2])
+  })
+
+  it('shows dashes when the server refused the price', () => {
+    render(<WhatIfChart preview={{ ...PREVIEW, price: null, price_error: 'Price must be between 0.20 and 1.00', at_price: null }} price={5} waiting={false} />)
+    expect(screen.getByText('Chance').parentElement?.textContent).toContain('–')
+  })
+
   it('says the figures are expected values', () => {
     render(<WhatIfChart preview={PREVIEW} price={0.3} waiting={false} />)
     expect(screen.getByText("Expected values for today's weather, at today's cost per cup. Real customers vary.")).toBeInTheDocument()
@@ -130,11 +138,6 @@ describe('WhatIfChart', () => {
     expect(Number(screen.getByTestId('what-if').style.opacity)).toBeLessThan(1)
   })
 
-  it('computes nothing: no demand function runs', () => {
-    render(<WhatIfChart preview={PREVIEW} price={0.3} waiting={false} />)
-    expect(demandSpy).not.toHaveBeenCalled()
-  })
-
   it('draws a different curve when the server sends different margins (nothing is derived from price)', () => {
     const other = { ...PREVIEW, expected_margin: [9, 8, 7, 6, 5] }
     render(<WhatIfChart preview={other} price={0.3} waiting={false} />)
@@ -148,15 +151,29 @@ const reply = (over: Partial<PlanPreviewOk> = {}) =>
   act(() => {
     useGameStore.setState({ planPreview: { requestId: 'r1', reply: { ...PREVIEW, ...over }, refused: false, waiting: false } })
   })
+const at = (over: Partial<NonNullable<PlanPreviewOk['at_price']>> = {}) => ({
+  chance: 0.5,
+  expected_cups: 10,
+  expected_margin: 4,
+  margin_per_cup: 0.43,
+  margin_share: 0.7167,
+  ...over,
+})
 
 describe('PlanDay cost and margin per cup', () => {
-  it('shows the cost per cup the server sent, and the margin as a share of the price', () => {
+  it('shows the cost per cup and the margin per cup the server sent, the margin as a share of the price', () => {
     render(<PlanDay state={planningState()} />)
     fireEvent.change(screen.getByLabelText('Price per cup ($)'), { target: { value: '0.6' } })
-    reply({ cost_per_cup: 0.17 })
+    reply({ cost_per_cup: 0.17, price: 0.6, price_error: null, at_price: at() })
     expect(tile('Cost per cup')).toContain('$0.17')
     // $0.43 of a $0.60 price is 72% (as a markup over cost it would read 253%).
     expect(tile('Margin per cup')).toContain('$0.43 (72%)')
+  })
+
+  it('takes the margin from the server, not from price minus cost', () => {
+    render(<PlanDay state={planningState()} />)
+    reply({ cost_per_cup: 0.17, price: 0.6, price_error: null, at_price: at({ margin_per_cup: 0.09, margin_share: 0.15 }) })
+    expect(tile('Margin per cup')).toContain('$0.09 (15%)')
   })
 
   it('computes nothing itself: before a reply the tiles wait, and the count of cups comes from the reply', () => {
@@ -170,18 +187,80 @@ describe('PlanDay cost and margin per cup', () => {
 
   it('shows a dash with no stock for a single cup', () => {
     render(<PlanDay state={planningState()} />)
-    reply({ cups_possible: 0, cost_per_cup: null })
+    reply({ cups_possible: 0, cost_per_cup: null, price: 0.55, price_error: null, at_price: at({ margin_per_cup: null, margin_share: null }) })
     expect(tile('Cost per cup')).toContain('–')
     expect(tile('Cost per cup')).toContain('No stock for a cup')
     expect(tile('Margin per cup')).toContain('–')
   })
 
-  it("explains that the day's cash result subtracts every pack bought today", () => {
+  it("explains that the day's cash result subtracts every pack bought today, with the server's spend", () => {
     render(<PlanDay state={planningState()} />)
     fireEvent.click(screen.getByLabelText('Add a pack of 100 lemons'))
+    expect(screen.getByText(/everything you buy today/).textContent).toContain('(… so far)')
+    reply({ spend: 5 })
     const note = screen.getByText(/everything you buy today/)
     expect(note.textContent).toContain('$5.00 so far')
     expect(note.textContent).toContain('even stock you will use on later days')
+  })
+})
+
+describe('PlanDay plan figures', () => {
+  it('shows the server spend, cash after and units, and waits for them before a reply', () => {
+    render(<PlanDay state={planningState()} />)
+    fireEvent.click(screen.getByLabelText('Add a pack of 300 lemons'))
+    expect(screen.getByText(/^Spend:/).textContent).toBe('Spend: …')
+    // Deliberately not 300 × 0.05 × 0.95: the screen prints what the server says.
+    reply({ spend: 13.33, cash_after: 86.67, units: { ice: 0, sugar: 0, lemons: 300, cups: 0 } })
+    expect(screen.getByText(/^Spend:/).textContent).toBe('Spend: $13.33')
+    expect(screen.getByText(/^Cash after:/).textContent).toBe('Cash after: $86.67')
+    expect(screen.getAllByText('+300').length).toBeGreaterThan(0)
+  })
+
+  it('prices each pack as the state does', () => {
+    const state = planningState()
+    state.packs.lemons = state.packs.lemons.map((p) => ({ ...p, price: p.size === 300 ? 9.99 : p.price }))
+    render(<PlanDay state={state} />)
+    expect(screen.getByLabelText('Add a pack of 300 lemons').parentElement?.textContent).toContain('$9.99')
+    expect(screen.getByLabelText('Add a pack of 300 ice').parentElement?.textContent).toContain('$2.85')
+  })
+
+  it('stops a pack the server says no longer fits the cash', () => {
+    render(<PlanDay state={planningState()} />)
+    reply({ can_add: { ...allFit, lemons: { ...allFit.lemons, '700': false } } })
+    expect(screen.getByLabelText('Add a pack of 700 lemons')).toBeDisabled()
+    expect(screen.getByLabelText('Add a pack of 700 lemons')).toHaveAttribute('title', 'Not enough cash for another')
+    expect(screen.getByLabelText('Add a pack of 500 lemons')).toBeEnabled()
+  })
+
+  it("shows the server's refusal of the plan and keeps the stand closed", () => {
+    render(<PlanDay state={planningState()} />)
+    act(() => {
+      useGameStore.setState({ planPreview: { requestId: 'r2', reply: null, refused: true, message: 'Purchases cost $105.00 but you only have $100.00', waiting: false } })
+    })
+    expect(screen.getByRole('alert').textContent).toContain('Purchases cost $105.00 but you only have $100.00')
+    expect(screen.getByRole('button', { name: /open the stand/i })).toBeDisabled()
+  })
+
+  it("shows the server's verdict on the price and keeps the stand closed", () => {
+    render(<PlanDay state={planningState()} />)
+    reply({ price: null, price_error: 'Price must be between 0.20 and 1.00', at_price: null })
+    expect(screen.getByText('Price must be between 0.20 and 1.00')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /open the stand/i })).toBeDisabled()
+  })
+
+  it('starts from the plan the server suggests and sends the price as typed', () => {
+    const state = planningState({ suggested_plan: { price: 0.65, recipe: { ice: 2, sugar: 4, lemons: 1 } } })
+    render(<PlanDay state={state} />)
+    expect(screen.getByLabelText('Price per cup ($)')).toHaveValue(0.65)
+    expect(screen.getByText(/sugar per cup:/i).textContent).toContain('4')
+    fireEvent.change(screen.getByLabelText('Price per cup ($)'), { target: { value: '0.555' } })
+    fireEvent.click(screen.getByRole('button', { name: /open the stand/i }))
+    expect(submitDay).toHaveBeenCalledWith({ purchases: {}, price: 0.555, recipe: { ice: 2, sugar: 4, lemons: 1 } })
+  })
+
+  it('shows the popularity factor the server sent', () => {
+    render(<PlanDay state={planningState({ popularity: 0.3, popularity_factor: 0.8 })} />)
+    expect(tile('Popularity')).toContain('buy chance ×0.80')
   })
 })
 
@@ -228,7 +307,7 @@ describe('PlanDay with the what-if chart', () => {
     expect(previewPlan).not.toHaveBeenCalled()
     act(() => void vi.advanceTimersByTime(1))
     expect(previewPlan).toHaveBeenCalledTimes(1)
-    expect(previewPlan.mock.calls[0][0]).toMatchObject({ recipe: expect.any(Object), purchases: expect.any(Object) })
+    expect(previewPlan.mock.calls[0][0]).toMatchObject({ recipe: expect.any(Object), purchases: expect.any(Object), price: 0.55 })
 
     const add = screen.getByLabelText('Add a pack of 100 ice')
     fireEvent.click(add)
@@ -252,13 +331,16 @@ describe('PlanDay with the what-if chart', () => {
     expect(previewPlan.mock.calls[1][0].recipe.ice).toBe(4)
   })
 
-  it('does not request again for a price change alone', () => {
+  it('requests again when the price changes, since the server works out the margin at it', () => {
     vi.useFakeTimers()
     render(<PlanDay state={holder()} />)
     act(() => void vi.advanceTimersByTime(250))
     fireEvent.change(screen.getByLabelText('Price per cup ($)'), { target: { value: '0.6' } })
-    act(() => void vi.advanceTimersByTime(1000))
+    act(() => void vi.advanceTimersByTime(249))
     expect(previewPlan).toHaveBeenCalledTimes(1)
+    act(() => void vi.advanceTimersByTime(1))
+    expect(previewPlan).toHaveBeenCalledTimes(2)
+    expect(previewPlan.mock.calls[1][0].price).toBe(0.6)
   })
 
   it('shows the chart once a reply for today arrives', () => {

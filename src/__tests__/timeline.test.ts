@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { actorAt, actorsAt, AT_STAND, cupsLeft, dayBounds, openingStock, revealedCount, stockAfter, tally, WALK_IN, WALK_OUT } from '../game/timeline'
+import { actorAt, actorsAt, AT_STAND, dayBounds, revealedCount, salesSoFar, stockNow, tally, WALK_IN, WALK_OUT } from '../game/timeline'
 import type { CustomerEvent, DayRecord } from '../types/game'
 
 const ev = (id: number, arrive: number, outcome: CustomerEvent['outcome'] = 'bought'): CustomerEvent => ({
@@ -53,24 +53,30 @@ describe('timeline', () => {
   })
 })
 
-describe('inventory during the day', () => {
-  const recipe = { ice: 3, sugar: 2, lemons: 1 }
-  const record = {
-    recipe,
-    buyers: 10,
-    inventory_end: { ice: 5, sugar: 0, lemons: 4, cups: 20 },
-    perished: { ice: 5, sugar: 0, lemons: 1, cups: 0 },
-  } as unknown as DayRecord
+describe('the day as the server reports it', () => {
+  const opening = { ice: 40, sugar: 20, lemons: 15, cups: 30 }
+  const record = { inventory_open: opening, cups_open: 10 } as unknown as DayRecord
+  // Deliberately not opening − cups × recipe: the playback shows what each event says.
+  const events = [
+    { ...ev(0, 540), sales: 0.5, stock: { ice: 37, sugar: 18, lemons: 14, cups: 29 }, cups_left: 9 },
+    { ...ev(1, 560, 'refused'), sales: 0.5, stock: { ice: 37, sugar: 18, lemons: 14, cups: 29 }, cups_left: 9 },
+    { ...ev(2, 580), sales: 1.25, stock: { ice: 1, sugar: 2, lemons: 3, cups: 4 }, cups_left: 1 },
+  ]
 
-  it('rebuilds opening stock from the close, overnight losses and cups sold', () => {
-    expect(openingStock(record)).toEqual({ ice: 40, sugar: 20, lemons: 15, cups: 30 })
-    expect(openingStock({ ...record, inventory_end: undefined })).toBeNull()
+  it('sales so far are the last revealed event’s, and nothing before the first', () => {
+    expect(salesSoFar(events, 0)).toBe(0)
+    expect(salesSoFar(events, 2)).toBe(0.5)
+    expect(salesSoFar(events, 3)).toBe(1.25)
+    expect(salesSoFar([ev(0, 540)], 1)).toBeNull()
   })
 
-  it('draws stock down per cup sold and counts the cups left', () => {
-    const opening = openingStock(record)!
-    expect(stockAfter(opening, recipe, 4)).toEqual({ ice: 28, sugar: 12, lemons: 11, cups: 26 })
-    expect(cupsLeft(stockAfter(opening, recipe, 4), recipe)).toBe(6)
-    expect(cupsLeft(stockAfter(opening, recipe, 10), recipe)).toBe(0)
+  it('stock is the opening stock until the first decision, then the last revealed event’s', () => {
+    expect(stockNow(record, events, 0)).toEqual({ opening, stock: opening, cupsLeft: 10 })
+    expect(stockNow(record, events, 3)).toEqual({ opening, stock: events[2].stock, cupsLeft: 1 })
+  })
+
+  it('shows nothing for a day the server kept no opening stock or event stock for', () => {
+    expect(stockNow({ ...record, inventory_open: undefined }, events, 1)).toBeNull()
+    expect(stockNow(record, [ev(0, 540)], 1)).toBeNull()
   })
 })

@@ -1,19 +1,18 @@
-import { render, screen, waitFor } from '@testing-library/react'
+import { act, render, screen, within } from '@testing-library/react'
 import type { ReactElement } from 'react'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { DOCS, type DocKey } from '../components/config/docs/entries'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { DOCS, type DocCtx, type DocKey } from '../components/config/docs/entries'
 import { route as configRoute } from '../pages/ConfigPage'
-import type { Limits } from '../types/game'
-import { defaultConfig, defaultLimits } from './fixtures/gameState'
+import type { ConfigPreview, Limits } from '../types/game'
+import { defaultConfig, defaultLimits, recordedConfig, recordedPreview } from './fixtures/gameState'
 
 vi.mock('react-chartjs-2', () => ({ Line: () => <canvas />, Bar: () => <canvas /> }))
 vi.mock('../auth/AuthContext', () => ({ useAuth: () => ({ firebaseUser: null, mode: 'guest', logout: vi.fn() }) }))
 vi.mock('../api/socketHandlers', () => ({ createGame: vi.fn() }))
 const rest = vi.hoisted(() => ({
   getConfigDefaults: vi.fn(),
-  validateConfig: vi.fn(async () => ({ valid: true, message: null })),
-  getCupCost: vi.fn(),
+  getConfigPreview: vi.fn(),
 }))
 vi.mock('../api/rest', () => rest)
 
@@ -33,15 +32,34 @@ function oddLimits(): Limits {
   return l
 }
 
-function doc(key: DocKey, limits: Limits = oddLimits()): string {
-  const body = DOCS[key].body({ config: defaultConfig(), limits, ingredient: 'lemons', weather: 'sunny', person: 'Adult' })
-  const { container } = render(<>{body as ReactElement}</>)
+/** A help context on the recorded server reply for the default config. */
+function ctx(over: Partial<DocCtx> = {}): DocCtx {
+  const preview = recordedPreview()
+  return {
+    config: recordedConfig(),
+    limits: oddLimits(),
+    help: preview.help,
+    ingredients: preview.ingredients,
+    invalid: null,
+    stale: false,
+    ingredient: 'lemons',
+    weather: 'sunny',
+    person: 'Adult',
+    ...over,
+  }
+}
+
+function doc(key: DocKey, over: Partial<DocCtx> = {}): string {
+  const { container } = render(<>{DOCS[key].body(ctx(over)) as ReactElement}</>)
   return container.textContent ?? ''
 }
 
 beforeEach(() => {
-  rest.getCupCost.mockReset()
   rest.getConfigDefaults.mockReset()
+  rest.getConfigPreview.mockReset()
+})
+afterEach(() => {
+  vi.useRealTimers()
 })
 
 describe('the help quotes the server limits', () => {
@@ -62,7 +80,6 @@ describe('the help quotes the server limits', () => {
   })
 
   it('packs: the daily cap per size, the number of sizes, sizes and discounts', () => {
-    rest.getCupCost.mockResolvedValue({ spend: 0, cups_possible: 0, cost_per_cup: null })
     const text = doc('packs')
     expect(text).toContain('up to 7 of each size a day')
     expect(text).not.toContain('any number')
@@ -92,31 +109,69 @@ describe('the help explains popularity exactly', () => {
   })
 })
 
-describe('the help prices a cup only through the server', () => {
-  it('cost per unit: the smallest and biggest packs, as the engine prices them', async () => {
-    rest.getCupCost.mockImplementation(async (_c, purchases: Record<string, Record<string, number>>) =>
-      purchases.lemons['100'] ? { spend: 12, cups_possible: 33, cost_per_cup: 0.29 } : { spend: 84, cups_possible: 233, cost_per_cup: 0.23 },
-    )
-    const { container } = render(<>{DOCS.unit_cost.body({ config: defaultConfig(), limits: defaultLimits(), ingredient: 'lemons' }) as ReactElement}</>)
-    await waitFor(() => expect(container.textContent).toContain('makes 33 cups at $0.29 a cup'))
-    expect(container.textContent).toContain('makes 233 cups at $0.23 a cup')
-    const [, smallPurchases, recipe] = rest.getCupCost.mock.calls[0]
-    expect(smallPurchases).toEqual({ ice: { '100': 1 }, sugar: { '100': 1 }, lemons: { '100': 1 }, cups: { '100': 1 } })
-    expect(recipe).toEqual({ ice: 3, sugar: 3, lemons: 3 })
+describe('the help shows only the server figures', () => {
+  it('cost per unit: the smallest and biggest packs, as the engine prices them', () => {
+    const text = doc('unit_cost')
+    expect(text).toContain('makes 33 cups at $0.28 a cup')
+    expect(text).toContain('Selling at $0.60 leaves $0.32 per cup sold')
+    expect(text).toContain('makes 233 cups at $0.22 a cup')
   })
 
-  it('starting cash: the basket and its cups come from the server', async () => {
-    rest.getCupCost.mockResolvedValue({ spend: 12.5, cups_possible: 33, cost_per_cup: 0.31 })
-    const { container } = render(<>{DOCS.starting_cash.body({ config: defaultConfig(), limits: defaultLimits() }) as ReactElement}</>)
-    await waitFor(() => expect(container.textContent).toContain('$12.50'))
-    expect(container.textContent).toContain('make 33 cups, at $0.31 a cup')
-    expect(container.textContent).toContain('8.0×')
+  it('starting cash: the basket, how many times the cash covers it, and its cups', () => {
+    const text = doc('starting_cash')
+    expect(text).toContain('$12.00')
+    expect(text).toContain('8.3×')
+    expect(text).toContain('make 33 cups, at $0.28 a cup')
+  })
+
+  it('a figure the server changes is the figure the help prints', () => {
+    const preview = recordedPreview()
+    preview.help!.weather.sunny.odds = 0.123
+    preview.help!.weather.sunny.expected_days = 4.56
+    preview.help!.people.Adult.wtp_best = 9.87
+    preview.help!.quality_swing.best = 2.5
+    preview.help!.popularity.start_factor = 1.75
+    preview.help!.people.Adult.worked.reason = 'too_sweet'
+    const over = { help: preview.help }
+    expect(doc('weather_range', over)).toContain('a chance of 12%, which is about 4.6 of your 7 days')
+    expect(doc('quality_swing', over)).toContain('they would pay $9.87 for their favourite cup')
+    expect(doc('quality_swing', over)).toContain('pay up to 250% of their budget')
+    expect(doc('starting_popularity', over)).toContain('multiplied by ×1.75')
+    expect(doc('customers_section', over)).toContain('Too sweet')
+  })
+
+  it('packs: the server prices, break-even and spoilage catch', () => {
+    const text = doc('packs')
+    expect(text).toContain('The pack of 700 costs $28.00')
+    expect(text).toContain('would cost $0.05 each')
+    expect(text).toContain('at least 560 of its 700 units')
+  })
+
+  it('spoilage: what is left of a batch, from the server', () => {
+    expect(doc('fresh_days')).toContain('after night 4 you would have about 75 left, and after night 5 about 38')
+  })
+
+  it('waits for the server before showing a figure', () => {
+    const text = doc('num_days', { help: null, ingredients: null })
+    expect(text).toContain('Asking the server for the examples…')
+    expect(text).toContain('from 2 to 45') // the prose and the limits still show
+    expect(doc('packs', { help: null, ingredients: null })).toContain('Asking the server for the examples…')
+  })
+
+  it("says why there are no examples for an invalid config, in the server's words", () => {
+    const text = doc('price', { help: null, invalid: 'Weather temperature ranges leave a gap starting at 5 °C' })
+    expect(text).toContain('The examples appear once the configuration is valid: Weather temperature ranges leave a gap starting at 5 °C')
+  })
+
+  it('keeps an ingredient’s own figures while another part of the config is invalid', () => {
+    const text = doc('packs', { help: null, invalid: 'a gap' })
+    expect(text).toContain('The pack of 700 costs $28.00')
+    expect(text).toContain('…') // the share of starting cash needs the whole config
   })
 })
 
-describe('the config screen reads its bounds from the server', () => {
-  it('sets each field limit from the served limits, not a copy', async () => {
-    rest.getConfigDefaults.mockResolvedValue({ config: defaultConfig(), limits: oddLimits() })
+describe('the config screen reads its bounds and figures from the server', () => {
+  const renderScreen = () =>
     render(
       <MemoryRouter initialEntries={['/new']}>
         <Routes>
@@ -124,6 +179,11 @@ describe('the config screen reads its bounds from the server', () => {
         </Routes>
       </MemoryRouter>,
     )
+
+  it('sets each field limit from the served limits, not a copy', async () => {
+    rest.getConfigDefaults.mockResolvedValue({ config: defaultConfig(), limits: oddLimits() })
+    rest.getConfigPreview.mockResolvedValue(recordedPreview())
+    renderScreen()
     // The input a label points at (a label query over the whole config screen is slow).
     const input = (label: HTMLElement) => document.getElementById((label as HTMLLabelElement).htmlFor) as HTMLInputElement
     const days = input(await screen.findByText('Number of days', { selector: 'label' }))
@@ -133,5 +193,46 @@ describe('the config screen reads its bounds from the server', () => {
     const iceBelow = [...document.querySelectorAll('label')].find((l) => /Ice below/.test(l.textContent ?? ''))!
     expect(input(iceBelow)).toHaveAttribute('max', '15')
     expect(input(screen.getAllByText('Discount', { selector: 'label' })[0])).toHaveAttribute('max', '75')
+  })
+
+  it('asks the server once the typing settles, and shows its pack prices, warnings and verdict', async () => {
+    vi.useFakeTimers()
+    const reply: ConfigPreview = recordedPreview()
+    reply.ingredients.ice!.packs[1] = { ...reply.ingredients.ice!.packs[1], price: 7.77, saving: 1.23, dearer_than: 100 }
+    rest.getConfigDefaults.mockResolvedValue({ config: recordedConfig(), limits: defaultLimits() })
+    rest.getConfigPreview.mockResolvedValue(reply)
+    renderScreen()
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0)
+    })
+    expect(screen.getAllByText('… per pack').length).toBeGreaterThan(0)
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(399)
+    })
+    expect(rest.getConfigPreview).not.toHaveBeenCalled()
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1)
+    })
+    expect(rest.getConfigPreview).toHaveBeenCalledTimes(1)
+    const packs = within(screen.getAllByRole('group', { name: 'Packs on sale' })[0])
+    expect(packs.getByText('$7.77')).toBeInTheDocument()
+    expect(packs.getByText(/saves \$1\.23/)).toBeInTheDocument()
+    expect(packs.getByText(/Costs more per unit than the pack of 100/)).toBeInTheDocument()
+    expect(screen.getByText('Configuration is valid')).toBeInTheDocument()
+  })
+
+  it("shows the server's reason a config is invalid and keeps the start button off", async () => {
+    vi.useFakeTimers()
+    rest.getConfigDefaults.mockResolvedValue({ config: recordedConfig(), limits: defaultLimits() })
+    rest.getConfigPreview.mockResolvedValue({ ...recordedPreview(), valid: false, message: 'Weather temperature ranges leave a gap', help: null })
+    renderScreen()
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0)
+    })
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(400)
+    })
+    expect(screen.getByText('Weather temperature ranges leave a gap')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Start 7-day game/ })).toBeDisabled()
   })
 })

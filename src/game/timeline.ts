@@ -7,7 +7,7 @@
  * before their arrival, reaches the stand at `arrive_min` (the moment their
  * decision is revealed), waits AT_STAND minutes, then walks off.
  */
-import { INGREDIENTS, RECIPE_INGREDIENTS, type CustomerEvent, type DayRecord, type IngredientName, type Outcome, type PersonType, type RecipeIngredient } from '../types/game'
+import type { CustomerEvent, DayRecord, IngredientName, Outcome, PersonType } from '../types/game'
 
 export const WALK_IN = 6
 export const AT_STAND = 2.5
@@ -133,31 +133,28 @@ export function dayFraction(clock: number): number {
   return (((clock / 60) % 24) + 24) % 24 / 24
 }
 
+/** The server's sales so far once `count` decisions are revealed ($0 before the first). Null on days played before events carried it. */
+export function salesSoFar(events: CustomerEvent[], count: number): number | null {
+  if (count === 0) return 0
+  return events[count - 1].sales ?? null
+}
+
+export interface StockNow {
+  opening: Record<IngredientName, number>
+  stock: Record<IngredientName, number>
+  cupsLeft: number
+}
+
 /**
- * Stock on hand when the stand opened, rebuilt from the day record: what was
- * left at close, plus what perished overnight, plus what the cups sold used.
- * Null for records that predate `inventory_end`.
+ * The stock as the day plays, read off the server: its opening stock until the first
+ * decision, then the stock and cups left the last revealed event carries. Null on days
+ * the server sent neither (played before it kept them).
  */
-export function openingStock(record: DayRecord): Record<IngredientName, number> | null {
-  const end = record.inventory_end
-  if (!end) return null
-  const perCup: Record<IngredientName, number> = { ...record.recipe, cups: 1 }
-  const out = {} as Record<IngredientName, number>
-  for (const n of INGREDIENTS) out[n] = end[n] + record.perished[n] + record.buyers * perCup[n]
-  return out
-}
-
-/** Stock left after `sold` cups have been made from `opening`. */
-export function stockAfter(opening: Record<IngredientName, number>, recipe: Record<RecipeIngredient, number>, sold: number): Record<IngredientName, number> {
-  const perCup: Record<IngredientName, number> = { ...recipe, cups: 1 }
-  const out = {} as Record<IngredientName, number>
-  for (const n of INGREDIENTS) out[n] = Math.max(0, opening[n] - sold * perCup[n])
-  return out
-}
-
-/** How many more cups `stock` can make with `recipe`. */
-export function cupsLeft(stock: Record<IngredientName, number>, recipe: Record<RecipeIngredient, number>): number {
-  let n = stock.cups
-  for (const r of RECIPE_INGREDIENTS) if (recipe[r] > 0) n = Math.min(n, Math.floor(stock[r] / recipe[r]))
-  return n
+export function stockNow(record: DayRecord, events: CustomerEvent[], count: number): StockNow | null {
+  const opening = record.inventory_open
+  if (!opening || record.cups_open == null) return null
+  if (count === 0) return { opening, stock: opening, cupsLeft: record.cups_open }
+  const e = events[count - 1]
+  if (!e.stock || e.cups_left == null) return null
+  return { opening, stock: e.stock, cupsLeft: e.cups_left }
 }

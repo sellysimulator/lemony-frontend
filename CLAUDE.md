@@ -46,7 +46,7 @@ other template pieces needs the user's explicit OK.
   separate design doc.
 - **`../Lemony_Backend/app/sockets/handlers/game.py` docstring** — socket contract table.
 - **`src/components/config/docs/entries.tsx`** — player-facing help for every config
-  knob; the "why" behind the rules, rendered with live examples.
+  knob; the "why" behind the rules, rendered with the server's figures for the draft.
 - **`../game_stack.md`** — template plumbing and the `[HARD-WON]` lessons referenced in code
   comments.
 
@@ -76,15 +76,28 @@ other template pieces needs the user's explicit OK.
   `ack_day` are daily: the store keeps the history it holds, appends `day_result.record`
   (skipping a day it already has) and takes the summary from `game_finished`. A daily
   event for a game the client doesn't hold sends `request_state` instead.
-- **Client-side maths is display only.** `src/game/timeline.ts` (pure playback positions
-  from events + sim clock), `costing.ts` (`purchaseCost`: what today's planned packs cost),
-  `configMath.ts` (config-help illustrations). None of it decides an outcome. The plan
-  screen's what-if curve, its cost per cup and the cups you can make come from the server
-  (`preview_plan` → `plan_preview`); the client draws them and computes nothing. The help's
-  cost-per-cup examples come from `POST /config/cup-cost` (`docs/CupCostExample.tsx`).
+- **The client copies no formula: the server computes every figure.** What is left is
+  display (formatting, `pct`, two-decimal `money()`), layout, chart axes and positions,
+  sorting and counting. `src/game/timeline.ts` is pure playback positions from events + sim
+  clock (and reads the server's sales/stock per event). Where each figure comes from:
+  - Plan screen: `plan_preview` (asked, debounced 250 ms, on every plan or price change)
+    gives spend, cash after, units, `can_add` per pack, cost and margin per cup, the price
+    verdict (`price_error`) and the what-if curve; the state gives `packs` (prices),
+    `popularity_factor` and `suggested_plan`. A server verdict gates a button only once a
+    reply exists, so the screen still works if none comes (`submit_day` judges anyway).
+  - Day report, end screen, profile: day records are server views (`cash_start`,
+    `popularity_factor`, per type/hour `conversion`, `refused` per hour, `cups_open`); the
+    summary has `conversion`, `total_perished_value`, `hour_totals`, `neutral_popularity`.
+  - Playback: each event's `sales`, `stock`, `cups_left`, and the record's `inventory_open`.
+  - Config screen and help: `POST /config/preview` (debounced 400 ms on every edit) gives
+    the verdict, each ingredient's packs and spoilage (`ingredients`) and every help figure
+    (`help`); `ConfigPage` puts it in `DocsConfigContext`, figures dim while stale, and a doc
+    shows "Asking the server…" or the server's reason the config is invalid until it has
+    them. `noClientFormulas.test.ts` fails if a removed copy comes back.
 - **Limits come from the server.** `GET /config/defaults` and every game state carry
   `limits` (`Limits` in `types/game.ts`); `ConfigPage`, `PacksEditor`, `PlanDay` (packs of
-  one size a day, price step) and the help read them. Never hand-copy a bound.
+  one size a day, price step) and the help read them. Never hand-copy a bound (not even in
+  prose: the home page no longer says "1 to 30 days").
 - **Saving a finished game.** `GameOver` offers "Play again" only once the game is saved
   (`publicId`); after `game_persist_failed` (store `persistFailed`) it offers "Try saving
   again" (`retryPersist` → `retry_persist`). The server also refuses a new game while the
@@ -117,22 +130,21 @@ until it is reloaded.
 | What | Frontend | Backend |
 |---|---|---|
 | Socket events & payloads (incl. `retry_persist`, `game_persist_failed`) | `src/api/socketHandlers.ts`, `src/types/game.ts`, `src/store/gameStore.ts` | `app/sockets/handlers/game.py`, `connection.py` |
-| Plan preview (`preview_plan` → `plan_preview`, incl. `cost_per_cup`) | `src/api/socketHandlers.ts`, `src/types/game.ts`, `src/store/gameStore.ts`, `src/components/plan/` | `app/core/preview.py`, `app/sockets/handlers/game.py` |
+| Plan preview (`preview_plan` with `price` → `plan_preview`: curve, cost/margin per cup, spend, cash after, units, `can_add`, `price_error`, `at_price`) | `src/api/socketHandlers.ts`, `src/types/game.ts`, `src/store/gameStore.ts`, `src/components/plan/` | `app/core/preview.py`, `app/sockets/handlers/game.py` |
+| Config preview (`POST /config/preview`: verdict, `ingredients`, `help`) | `src/api/rest.ts`, `src/types/game.ts` (`ConfigPreview`), `pages/ConfigPage.tsx`, `components/config/PacksEditor.tsx`, `components/config/docs/` | `app/core/config_preview.py`, `plans.py`, `app/api/v1/config.py` |
+| Config preview fixture | `src/__tests__/fixtures/config_preview.json` (byte-identical) | `tests/fixtures/config_preview.json` (= its reply for the defaults) |
+| Derived record and summary figures (day views, event `sales`/`stock`/`cups_left`, state `packs`/`popularity_factor`/`suggested_plan`, profile `conversion`) | `src/types/game.ts`; shown by `PlanDay`, `DayReport`, `GameOver`, `charts/endgame/`, `day/`, `ProfilePage` | `app/core/engine.py` (`day_view`, `summarize`, `run_day`), `app/services/db_service.py`, `app/api/v1/users.py` |
 | Limits (every bound, the price step) | `src/types/game.ts` `Limits`; `ConfigPage`, `PacksEditor`, `PlanDay`, the help | `core/limits.py` `public_limits()` |
 | Limits fixture | `src/__tests__/fixtures/limits.json` (byte-identical) | `tests/fixtures/limits.json` |
-| Cost per cup (shown, never computed) | `PlanDay`, `DayReport`, `docs/CupCostExample.tsx` | `core/engine.py` `cup_cost` |
-| REST shapes (incl. `POST /config/cup-cost`) | `src/api/rest.ts` | `app/schemas/user.py`, `app/api/v1/*` |
+| Cost per cup (shown, never computed) | `PlanDay`, `DayReport`, the help | `core/engine.py` `cup_cost` |
+| REST shapes (incl. `POST /config/preview`) | `src/api/rest.ts` | `app/schemas/user.py`, `app/api/v1/*` |
 | Engine output (`GameState`, `DayRecord`, summary) | `src/types/game.ts` (hand-written, no codegen) | `app/core/engine.py` |
-| Money rounding | `src/utils/money.ts` `roundCents` | `app/core/money.py` `round_cents` |
-| Rounding fixture | `src/__tests__/fixtures/rounding_cases.json` | `tests/fixtures/rounding_cases.json` (byte-identical) |
-| Pack price, purchase cost | `src/game/configMath.ts` `packPrice`, `src/game/costing.ts` `purchaseCost` | `core/config_model.py`, `core/engine.py` |
-| Demand/perish maths (help illustrations) | `src/game/configMath.ts` | `core/demand.py`, `people.py`, `ingredients.py`, `weather.py` |
 | Vocabulary constants (incl. refusal reasons) | `src/types/game.ts`, `src/utils/format.ts` `REASON_TEXT` | `core/defaults.py`, `core/demand.py` |
 
-**Rounding rule:** `Number((v*100).toPrecision(12))`, round half away from zero, `/100`,
-`+0` to drop `-0`. `utils/format.ts` `money()` rounds before display so the client never
-disagrees with the server by a cent. Game formulas belong to the user: keep them, and flag
-a suspected bug as an explicit before/after proposal instead of rewriting it.
+**Money:** only the server rounds (`core/money.py`); every money figure it sends is already
+to the cent, and `utils/format.ts` `money()` just prints two decimals. Game formulas belong
+to the user and live on the server: keep them there, and flag a suspected bug as an
+explicit before/after proposal instead of rewriting it.
 
 ## Conventions
 
@@ -179,13 +191,14 @@ a suspected bug as an explicit before/after proposal instead of rewriting it.
   `detailed_stand.glb`.
 - **`DayView`'s rAF effect disables exhaustive-deps on purpose** (restarts only when the
   watched day changes).
-- **Test coverage** (20 files, 190 tests) is mostly pure logic (money, costing, configMath,
-  timeline, sceneModel, gameStore, openDayReport, planPreview), plus component and handler
-  tests (`fields`, `Select`, `PlanDay`, `playAgain`, `socketHandlers`, `chartKit`,
-  `endgameCharts`, `DayReport`, `WhatIfChart`, `configLimits`: the help and config screen
-  quote the served limits and price cups only through the server) and source scans
-  (`noGradient` fails on any CSS gradient, `firebaseFile` pins the `firebase.ts` exports).
-  Most components and `api/` are untested.
+- **Test coverage** (18 files, 190 tests) is mostly pure logic (timeline, sceneModel,
+  gameStore, openDayReport, planPreview), plus component and handler tests (`fields`,
+  `Select`, `PlanDay`, `playAgain`, `socketHandlers`, `chartKit`, `endgameCharts`,
+  `DayReport`, `WhatIfChart` (also the plan screen's server figures), `configLimits`: the
+  help and config screen quote the served limits and show only the server's figures, from
+  the recorded `config_preview.json`) and source scans (`noGradient` fails on any CSS
+  gradient, `noClientFormulas` on any removed formula copy, `firebaseFile` pins the
+  `firebase.ts` exports). Most components and `api/` are untested.
 
 ## Deploy
 
