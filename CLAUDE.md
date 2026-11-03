@@ -142,6 +142,14 @@ dropped the history, or states dropped `last_day_events` and a duplicate `day_re
 `events: null`), ship the frontend first, or an open tab on the old frontend crashes
 until it is reloaded.
 
+**The `fix/charts` release breaks that exception: deploy the backend first, then this app
+right after it.** The branch as a whole can't go frontend first: this app needs what the
+backend branch's earlier commits add (`POST /config/preview` and the other new server
+figures, plus Alembic migrations 0004 and 0005, which the backend's deploy applies). Keep
+the gap short. Until this app is live, an open tab on the old one can crash on a duplicate
+`day_result` (`events: null`) or on a resume of a played, unacknowledged day (no
+`last_day_events`), until it is reloaded. After this release the general rule applies again.
+
 | What | Frontend | Backend |
 |---|---|---|
 | Socket events & payloads (incl. `retry_persist`, `game_persist_failed`, `day_result.events` null when not available) | `src/api/socketHandlers.ts`, `src/types/game.ts`, `src/store/gameStore.ts` | `app/sockets/handlers/game.py`, `connection.py` |
