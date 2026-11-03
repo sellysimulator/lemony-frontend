@@ -29,6 +29,7 @@ function oddLimits(): Limits {
   l.starting_popularity = { min: 0, max: 1 }
   l.price_tolerance_above = { min: 0, max: 4 }
   l.tolerance = { min: 0, max: 15 }
+  l.customers_per_day = { min: 0, max: 4321 }
   return l
 }
 
@@ -41,6 +42,7 @@ function ctx(over: Partial<DocCtx> = {}): DocCtx {
     help: preview.help,
     ingredients: preview.ingredients,
     invalid: null,
+    customersPerDay: preview.customers_per_day,
     stale: false,
     ingredient: 'lemons',
     weather: 'sunny',
@@ -77,6 +79,16 @@ describe('the help quotes the server limits', () => {
 
   it('price tolerance', () => {
     expect(doc('tolerance_price')).toContain('at most 400%')
+  })
+
+  it('the cap on customers a day, beside every traffic field, with the server figure', () => {
+    for (const key of ['spawn_per_hour', 'traffic_multiplier', 'hour'] as const) {
+      const text = doc(key)
+      expect(text).toContain('the busiest day they allow may expect at most 4,321 customers')
+      expect(text).toContain('This one: up to 228 customers a day.')
+    }
+    expect(doc('spawn_per_hour', { customersPerDay: 12345 })).toContain('up to 12,345 customers a day')
+    expect(doc('spawn_per_hour', { customersPerDay: null })).not.toContain('This one')
   })
 
   it('packs: the daily cap per size, the number of sizes, sizes and discounts', () => {
@@ -221,10 +233,30 @@ describe('the config screen reads its bounds and figures from the server', () =>
     expect(screen.getByText('Configuration is valid')).toBeInTheDocument()
   })
 
-  it("shows the server's reason a config is invalid and keeps the start button off", async () => {
+  it("shows the server's customers a day beside the served cap", async () => {
     vi.useFakeTimers()
-    rest.getConfigDefaults.mockResolvedValue({ config: recordedConfig(), limits: defaultLimits() })
-    rest.getConfigPreview.mockResolvedValue({ ...recordedPreview(), valid: false, message: 'Weather temperature ranges leave a gap', help: null })
+    rest.getConfigDefaults.mockResolvedValue({ config: recordedConfig(), limits: oddLimits() })
+    rest.getConfigPreview.mockResolvedValue(recordedPreview())
+    renderScreen()
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0)
+    })
+    expect(screen.getByText('Up to … customers a day (limit 4,321)')).toBeInTheDocument()
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(400)
+    })
+    expect(screen.getByText('Up to 228 customers a day (limit 4,321)')).toBeInTheDocument()
+  })
+
+  it('still works against a backend older than the cap: no customers line, no crash', async () => {
+    // The frontend deploys first, so for a while the served limits have no `customers_per_day`.
+    vi.useFakeTimers()
+    const older = oddLimits()
+    delete older.customers_per_day
+    const olderPreview: Partial<ConfigPreview> = recordedPreview()
+    delete olderPreview.customers_per_day
+    rest.getConfigDefaults.mockResolvedValue({ config: recordedConfig(), limits: older })
+    rest.getConfigPreview.mockResolvedValue(olderPreview as ConfigPreview)
     renderScreen()
     await act(async () => {
       await vi.advanceTimersByTimeAsync(0)
@@ -232,7 +264,50 @@ describe('the config screen reads its bounds and figures from the server', () =>
     await act(async () => {
       await vi.advanceTimersByTimeAsync(400)
     })
+    expect(screen.getByText('Configuration is valid')).toBeInTheDocument()
+    expect(screen.queryByText(/customers a day \(limit/)).not.toBeInTheDocument()
+    expect(doc('customers_section', { limits: older, customersPerDay: null })).not.toContain('may expect at most')
+  })
+
+  it("shows the cap's refusal beside the server's figure, and keeps the start button off", async () => {
+    vi.useFakeTimers()
+    const message = 'Up to 6,013 customers could come on the busiest day, over the limit of 5,000 a day.'
+    rest.getConfigDefaults.mockResolvedValue({ config: recordedConfig(), limits: defaultLimits() })
+    rest.getConfigPreview.mockResolvedValue({ ...recordedPreview(), valid: false, message, customers_per_day: 6013, help: null })
+    renderScreen()
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0)
+    })
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(400)
+    })
+    const line = screen.getByText('Up to 6,013 customers a day (limit 5,000)')
+    expect(line).toHaveClass('text-bad')
+    // Beside the figure and in the verdict bar.
+    expect(screen.getAllByText(message)).toHaveLength(2)
+    expect(screen.getByRole('button', { name: /Start 7-day game/ })).toBeDisabled()
+  })
+
+  it("shows the server's reason a config is invalid and keeps the start button off", async () => {
+    vi.useFakeTimers()
+    rest.getConfigDefaults.mockResolvedValue({ config: recordedConfig(), limits: defaultLimits() })
+    rest.getConfigPreview.mockResolvedValue({
+      ...recordedPreview(),
+      valid: false,
+      message: 'Weather temperature ranges leave a gap',
+      customers_per_day: null,
+      help: null,
+    })
+    renderScreen()
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0)
+    })
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(400)
+    })
+    // Only in the verdict bar: the customers line has no figure to judge.
     expect(screen.getByText('Weather temperature ranges leave a gap')).toBeInTheDocument()
+    expect(screen.getByText('Up to … customers a day (limit 5,000)')).not.toHaveClass('text-bad')
     expect(screen.getByRole('button', { name: /Start 7-day game/ })).toBeDisabled()
   })
 })

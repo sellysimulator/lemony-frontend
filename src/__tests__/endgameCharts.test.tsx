@@ -210,7 +210,7 @@ describe('L1 price vs success rate bubble chart', () => {
     useGameStore.getState().reset()
     const s = useGameStore.getState()
     s.handleGameCreated(1, 'g1')
-    s.handleGameState(2, { game_id: 'g1', day: 4, phase: 'finished', days: DAYS, last_day_events: [], summary: SUMMARY, public_id: null } as unknown as GameState)
+    s.handleGameState(2, { game_id: 'g1', day: 4, phase: 'finished', days: DAYS, summary: SUMMARY, public_id: null } as unknown as GameState)
     render(
       <MemoryRouter>
         <GameOver summary={SUMMARY} publicId={null} saveFailed={false} signedIn={false} />

@@ -58,7 +58,8 @@ other template pieces needs the user's explicit OK.
   top-level `pages/*.tsx` is globbed.
 - **The game loop is one route** (`/play`, `PlayPage`), switching on `useGameStore().view`
   (`plan | day | report | over`). `viewForState` maps server phases (`planning | played |
-  finished`) to views; a refresh mid-day replays the day from `state.last_day_events`.
+  finished`) to views; a refresh mid-day opens that day's report (the server keeps no
+  customers to replay).
 - **Socket layer.** `src/api/socket.ts` (`autoConnect: false`; `auth` callback sends a
   fresh `{idToken, guestId}` on every connect) and `src/api/socketHandlers.ts` (all
   listeners and emits). `AuthContext` connects only after Firebase restores the session.
@@ -72,10 +73,16 @@ other template pieces needs the user's explicit OK.
   `lastSeq`; the store keeps only the latest `request_id`'s reply, and a refusal rides
   inside it (`error`) instead of going through the `error` listener.
 - **History arrives once.** Only a full `game_state` (`full` true or missing) carries
-  `days`, `last_day_events` and `summary`. `day_result` and the `game_state` after
+  `days` and `summary`. `day_result` and the `game_state` after
   `ack_day` are daily: the store keeps the history it holds, appends `day_result.record`
   (skipping a day it already has) and takes the summary from `game_finished`. A daily
   event for a game the client doesn't hold sends `request_state` instead.
+- **A day's customers arrive once.** `day_result.events` feeds the playback
+  (`watch.events`: timeline, 2D/3D boards, `Hud`, `DecisionFeed`, `InventoryPanel`) and is
+  never stored by the server. `events: null` (a day sent again) means "not available":
+  `handleDayResult` opens that day's report instead (an on-screen playback of that day
+  carries on), and so does `viewForState` for a resumed `played` day. No replay ever starts
+  on an empty list it was not given live. Tests: `gameStore`, `socketHandlers`.
 - **The client copies no formula: the server computes every figure.** What is left is
   display (formatting, `pct`, two-decimal `money()`), layout, chart axes and positions,
   sorting and counting. `src/game/timeline.ts` is pure playback positions from events + sim
@@ -90,13 +97,20 @@ other template pieces needs the user's explicit OK.
     summary has `conversion`, `total_perished_value`, `hour_totals`, `neutral_popularity`.
   - Playback: each event's `sales`, `stock`, `cups_left`, and the record's `inventory_open`.
   - Config screen and help: `POST /config/preview` (debounced 400 ms on every edit) gives
-    the verdict, each ingredient's packs and spoilage (`ingredients`) and every help figure
-    (`help`); `ConfigPage` puts it in `DocsConfigContext`, figures dim while stale, and a doc
-    shows "Asking the server…" or the server's reason the config is invalid until it has
-    them. `noClientFormulas.test.ts` fails if a removed copy comes back.
+    the verdict, each ingredient's packs and spoilage (`ingredients`), every help figure
+    (`help`) and the busiest day's customers (`customers_per_day`); `ConfigPage` puts it in
+    `DocsConfigContext`, figures dim while stale, and a doc shows "Asking the server…" or
+    the server's reason the config is invalid until it has them. `noClientFormulas.test.ts`
+    fails if a removed copy comes back.
+  - Customers a day: `ConfigPage`'s `CustomersPerDay` (top of the Customers section) shows
+    "Up to N customers a day (limit L)" from `customers_per_day` and
+    `limits.customers_per_day.max`; the help's traffic docs quote both (`CustomersCap`). The
+    server sends the figure with `valid: false` only when that cap refused the config, so the
+    line then turns red and repeats the server's message. The client never compares the two.
 - **Limits come from the server.** `GET /config/defaults` and every game state carry
   `limits` (`Limits` in `types/game.ts`); `ConfigPage`, `PacksEditor`, `PlanDay` (packs of
-  one size a day, price step) and the help read them. Never hand-copy a bound (not even in
+  one size a day, price step) and the help read them. `customers_per_day` bounds no single
+  field: it caps the busiest day the traffic fields add up to. Never hand-copy a bound (not even in
   prose: the home page no longer says "1 to 30 days").
 - **Saving a finished game.** `GameOver` offers "Play again" only once the game is saved
   (`publicId`); after `game_persist_failed` (store `persistFailed`) it offers "Try saving
@@ -124,17 +138,18 @@ user's job — don't run them unless asked.
 
 Change these together, backend first, and ship both halves in the same window. The
 exception: when the backend stops sending a field this app reads (as when round events
-dropped the history), ship the frontend first, or an open tab on the old frontend crashes
+dropped the history, or states dropped `last_day_events` and a duplicate `day_result` got
+`events: null`), ship the frontend first, or an open tab on the old frontend crashes
 until it is reloaded.
 
 | What | Frontend | Backend |
 |---|---|---|
-| Socket events & payloads (incl. `retry_persist`, `game_persist_failed`) | `src/api/socketHandlers.ts`, `src/types/game.ts`, `src/store/gameStore.ts` | `app/sockets/handlers/game.py`, `connection.py` |
+| Socket events & payloads (incl. `retry_persist`, `game_persist_failed`, `day_result.events` null when not available) | `src/api/socketHandlers.ts`, `src/types/game.ts`, `src/store/gameStore.ts` | `app/sockets/handlers/game.py`, `connection.py` |
 | Plan preview (`preview_plan` with `price` → `plan_preview`: curve, cost/margin per cup, spend, cash after, units, `can_add`, `price_error`, `at_price`) | `src/api/socketHandlers.ts`, `src/types/game.ts`, `src/store/gameStore.ts`, `src/components/plan/` | `app/core/preview.py`, `app/sockets/handlers/game.py` |
-| Config preview (`POST /config/preview`: verdict, `ingredients`, `help`) | `src/api/rest.ts`, `src/types/game.ts` (`ConfigPreview`), `pages/ConfigPage.tsx`, `components/config/PacksEditor.tsx`, `components/config/docs/` | `app/core/config_preview.py`, `plans.py`, `app/api/v1/config.py` |
+| Config preview (`POST /config/preview`: verdict, `customers_per_day`, `ingredients`, `help`) | `src/api/rest.ts`, `src/types/game.ts` (`ConfigPreview`), `pages/ConfigPage.tsx`, `components/config/PacksEditor.tsx`, `components/config/docs/` | `app/core/config_preview.py`, `plans.py`, `app/api/v1/config.py` |
 | Config preview fixture | `src/__tests__/fixtures/config_preview.json` (byte-identical) | `tests/fixtures/config_preview.json` (= its reply for the defaults) |
 | Derived record and summary figures (day views, event `sales`/`stock`/`cups_left`, state `packs`/`popularity_factor`/`suggested_plan`, profile `conversion`) | `src/types/game.ts`; shown by `PlanDay`, `DayReport`, `GameOver`, `charts/endgame/`, `day/`, `ProfilePage` | `app/core/engine.py` (`day_view`, `summarize`, `run_day`), `app/services/db_service.py`, `app/api/v1/users.py` |
-| Limits (every bound, the price step) | `src/types/game.ts` `Limits`; `ConfigPage`, `PacksEditor`, `PlanDay`, the help | `core/limits.py` `public_limits()` |
+| Limits (every bound, the price step, the cap on customers a day) | `src/types/game.ts` `Limits`; `ConfigPage`, `PacksEditor`, `PlanDay`, the help | `core/limits.py` `public_limits()` |
 | Limits fixture | `src/__tests__/fixtures/limits.json` (byte-identical) | `tests/fixtures/limits.json` |
 | Cost per cup (shown, never computed) | `PlanDay`, `DayReport`, the help | `core/engine.py` `cup_cost` |
 | REST shapes (incl. `POST /config/preview`) | `src/api/rest.ts` | `app/schemas/user.py`, `app/api/v1/*` |
@@ -191,12 +206,12 @@ explicit before/after proposal instead of rewriting it.
   `detailed_stand.glb`.
 - **`DayView`'s rAF effect disables exhaustive-deps on purpose** (restarts only when the
   watched day changes).
-- **Test coverage** (18 files, 190 tests) is mostly pure logic (timeline, sceneModel,
+- **Test coverage** (18 files, 198 tests) is mostly pure logic (timeline, sceneModel,
   gameStore, openDayReport, planPreview), plus component and handler tests (`fields`,
   `Select`, `PlanDay`, `playAgain`, `socketHandlers`, `chartKit`, `endgameCharts`,
   `DayReport`, `WhatIfChart` (also the plan screen's server figures), `configLimits`: the
   help and config screen quote the served limits and show only the server's figures, from
-  the recorded `config_preview.json`) and source scans (`noGradient` fails on any CSS
+  the recorded `config_preview.json`, including the customers-a-day figure and its refusal) and source scans (`noGradient` fails on any CSS
   gradient, `noClientFormulas` on any removed formula copy, `firebaseFile` pins the
   `firebase.ts` exports). Most components and `api/` are untested.
 

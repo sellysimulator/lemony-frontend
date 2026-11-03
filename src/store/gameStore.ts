@@ -9,6 +9,10 @@
  *
  * History: only full states carry `days`. Round events send a daily state, and
  * the store keeps the days it holds, appending each `day_result.record`.
+ *
+ * A day's customers arrive once, in the `day_result` that played it, and only feed the
+ * playback (`watch.events`). The server keeps none: a resumed played day or a day sent
+ * again (`events: null`) opens straight on its report, never on an empty street.
  */
 import { create } from 'zustand'
 import type {
@@ -108,8 +112,8 @@ export function viewForState(state: GameState): { view: PlayView; watch: Watched
   if (state.phase === 'planning') return { view: 'plan', watch: null }
   const record = state.days[state.days.length - 1]
   if (state.phase === 'played' && record) {
-    // A refresh mid-day: replay the day that was being watched.
-    return { view: 'day', watch: { day: record.day, record, events: state.last_day_events } }
+    // A refresh mid-day: the server kept no customers to replay, so open the day's report.
+    return { view: 'report', watch: { day: record.day, record, events: [] } }
   }
   return { view: 'over', watch: null }
 }
@@ -121,9 +125,9 @@ function appendDay(days: DayRecord[], record: DayRecord): DayRecord[] {
 }
 
 /** The history this client holds for `gameId`, empty if it holds another game or none. */
-function heldHistory(s: GameStoreState, gameId: string): Pick<GameState, 'days' | 'last_day_events' | 'summary'> {
+function heldHistory(s: GameStoreState, gameId: string): Pick<GameState, 'days' | 'summary'> {
   const held = s.state?.game_id === gameId ? s.state : null
-  return { days: held?.days ?? [], last_day_events: held?.last_day_events ?? [], summary: held?.summary ?? null }
+  return { days: held?.days ?? [], summary: held?.summary ?? null }
 }
 
 export const useGameStore = create<GameStoreState & GameStoreActions>((set, get) => {
@@ -162,23 +166,20 @@ export const useGameStore = create<GameStoreState & GameStoreActions>((set, get)
     },
 
     handleDailyState(seq, daily) {
-      applySequenced(seq, (s) => {
-        const held = heldHistory(s, daily.game_id)
-        // Acknowledging a day clears its events; a refused ack leaves the day being watched.
-        const lastDayEvents = daily.phase === 'planning' ? [] : held.last_day_events
-        return withState(s, { ...daily, ...held, last_day_events: lastDayEvents })
-      })
+      applySequenced(seq, (s) => withState(s, { ...daily, ...heldHistory(s, daily.game_id) }))
     },
 
     handleDayResult(data) {
       applySequenced(data.seq, (s) => {
         const held = heldHistory(s, data.state.game_id)
-        return {
-          state: { ...data.state, ...held, days: appendDay(held.days, data.record), last_day_events: data.events },
-          submitting: false,
-          view: 'day',
-          watch: { day: data.day, record: data.record, events: data.events },
+        const state = { ...data.state, ...held, days: appendDay(held.days, data.record) }
+        if (!Array.isArray(data.events)) {
+          // Not available (a day sent again): the report, never an empty street. A playback or
+          // report of that day already on screen carries on.
+          const onIt = s.watch?.day === data.day && (s.view === 'day' || s.view === 'report')
+          return { state, submitting: false, ...(onIt ? {} : { view: 'report' as const, watch: { day: data.day, record: data.record, events: [] } }) }
         }
+        return { state, submitting: false, view: 'day', watch: { day: data.day, record: data.record, events: data.events } }
       })
     },
 

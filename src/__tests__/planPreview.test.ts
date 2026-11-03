@@ -11,7 +11,7 @@ const { useGameStore } = await import('../store/gameStore')
 const { useAlerts } = await import('../store/alerts')
 const { previewPlan } = await import('../api/socketHandlers')
 
-const full = { game_id: 'g1', day: 3, phase: 'planning', days: [], last_day_events: [], summary: null, public_id: null } as unknown as GameState
+const full = { game_id: 'g1', day: 3, phase: 'planning', days: [], summary: null, public_id: null } as unknown as GameState
 const plan = { purchases: { ice: { '100': 1 } }, recipe: { ice: 1, sugar: 2, lemons: 3 }, price: 0.45 }
 
 const ok = (request_id: string, margin = 1) => ({

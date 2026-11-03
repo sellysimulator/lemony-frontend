@@ -61,6 +61,25 @@ function HazardPreview(props: { cfg: IngredientConfig; hazard: number[] | null; 
   )
 }
 
+/**
+ * The server's figure for the busiest day this config allows, beside the cap on it; when the
+ * cap is what refused the config, also the server's reason. "…" until the server has judged it.
+ */
+function CustomersPerDay(props: { preview: ConfigPreview | null; limit: number; stale: boolean }): ReactElement {
+  const figure = props.preview?.customers_per_day ?? null
+  // The server sends a figure with `valid: false` only when the cap refused the config.
+  const refused = props.preview?.valid === false && figure !== null
+  return (
+    <div className={`rounded-lg bg-surface-sunken/60 p-3 text-sm ${props.stale ? 'opacity-50' : ''}`} aria-busy={props.stale || figure === null}>
+      <p className={`flex items-center gap-2 font-semibold ${refused ? 'text-bad' : ''}`}>
+        <Users aria-hidden className="size-4 shrink-0" />
+        Up to {figure === null ? '…' : figure.toLocaleString('en')} customers a day (limit {props.limit.toLocaleString('en')})
+      </p>
+      {refused && props.preview?.message ? <p className="mt-1 text-bad">{props.preview.message}</p> : null}
+    </div>
+  )
+}
+
 /** A labelled run of fields inside a card. */
 function FieldGroup(props: { title: string; children: ReactNode }): ReactElement {
   return (
@@ -332,6 +351,10 @@ function ConfigPage(): ReactElement {
 
             <Section title="Customers" icon={<Users aria-hidden className="size-5 text-brand-strong" />} info={<InfoButton doc="customers_section" />}>
               <div className="space-y-3">
+                {/* A backend older than the cap sends no `customers_per_day` limit: no line then. */}
+                {limits.customers_per_day ? (
+                  <CustomersPerDay preview={figures} limit={limits.customers_per_day.max} stale={checking} />
+                ) : null}
                 <NumberField
                   label="Recipe effect on price"
                   step={0.05}

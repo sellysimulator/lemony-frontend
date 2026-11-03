@@ -90,6 +90,12 @@ export interface Limits {
   price_tolerance_below: Range
   price_tolerance_above: Range
   weather_multiplier: Range
+  /**
+   * Customers the busiest day of a config may expect: no single field, but what the traffic
+   * fields add up to. `ConfigPreview.customers_per_day` is the config's own figure. Absent from
+   * a backend older than 2026-11-03 (the frontend deploys first), so every reader checks it.
+   */
+  customers_per_day?: Range
   unit_cost: Range
   /** Pack sizes on sale per ingredient. */
   packs: Range
@@ -229,7 +235,6 @@ export interface GameState {
   /** Where the plan screen starts: the last day's price and recipe, else the server's opening plan. */
   suggested_plan: { price: number; recipe: Record<RecipeIngredient, number> }
   days: DayRecord[]
-  last_day_events: CustomerEvent[]
   config: GameConfig
   limits: Limits
   persisted: boolean
@@ -277,7 +282,7 @@ export interface DayPlanPayload {
  * is left out so a day's events do not grow with the game. The client keeps the days it holds,
  * appends `day_result.record`, and takes the summary from `game_finished`.
  */
-export type DailyGameState = Omit<GameState, 'days' | 'last_day_events' | 'summary'>
+export type DailyGameState = Omit<GameState, 'days' | 'summary'>
 
 // ---- socket payloads (server -> client)
 export interface GameCreatedEvent { seq: number; game_id: string; session_token: string }
@@ -287,7 +292,12 @@ export interface DayResultEvent {
   seq: number
   day: number
   record: DayRecord
-  events: CustomerEvent[]
+  /**
+   * Every customer of the day, in arrival order, for the playback. Sent once, with the result
+   * of the submission that played the day; the server keeps no copy. `null` means "not
+   * available" (a day sent again, `duplicate: true`): skip the replay and open the report.
+   */
+  events: CustomerEvent[] | null
   duplicate: boolean
   state: DailyGameState
 }
@@ -422,6 +432,13 @@ export interface ConfigHelp {
 export interface ConfigPreview {
   valid: boolean
   message: string | null
+  /**
+   * The most customers one day can expect (the server's safe upper bound), capped at
+   * `limits.customers_per_day.max`. Sent whenever the config is valid apart from that cap,
+   * so with `valid: false` it is the cap that refused the config (`message` says why);
+   * null when anything else is invalid.
+   */
+  customers_per_day: number | null
   /** Null for an ingredient whose own settings are invalid. */
   ingredients: Record<IngredientName, IngredientPreview | null>
   /** Null unless the whole config is valid. */

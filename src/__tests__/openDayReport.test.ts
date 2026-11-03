@@ -4,7 +4,7 @@ import type { DayRecord, GameState } from '../types/game'
 
 const rec = (day: number): DayRecord => ({ day, cash_end: 100 + day }) as DayRecord
 const state = (days: DayRecord[]): GameState =>
-  ({ game_id: 'g1', day: days.length + 1, phase: 'finished', days, last_day_events: [], summary: null, public_id: null }) as unknown as GameState
+  ({ game_id: 'g1', day: days.length + 1, phase: 'finished', days, summary: null, public_id: null }) as unknown as GameState
 
 describe('openDayReport', () => {
   beforeEach(() => useGameStore.getState().reset())

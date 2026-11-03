@@ -17,6 +17,7 @@ export default function InfoButton(props: { doc: DocKey } & Extra): ReactElement
     help: preview?.help ?? null,
     ingredients: preview?.ingredients ?? null,
     invalid: preview && !preview.valid ? preview.message : null,
+    customersPerDay: preview?.customers_per_day ?? null,
     stale: docs.stale,
     person: props.person,
     ingredient: props.ingredient,

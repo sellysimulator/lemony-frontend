@@ -34,6 +34,8 @@ export interface DocCtx {
   ingredients: Record<IngredientName, IngredientPreview | null> | null
   /** The server's reason the config is invalid, if it is. */
   invalid: string | null
+  /** The server's figure for the busiest day's customers (`ConfigPreview.customers_per_day`); null until it has one. */
+  customersPerDay: number | null
   /** The figures are for an earlier edit; newer ones are on their way. */
   stale: boolean
   person?: PersonType
@@ -79,6 +81,25 @@ function withHelp(ctx: DocCtx, render: (help: ConfigHelp) => ReactNode): ReactNo
 function withIngredient(ctx: DocCtx, name: IngredientName, render: (figures: IngredientPreview) => ReactNode): ReactNode {
   const figures = ctx.ingredients?.[name]
   return figures ? <Figures stale={ctx.stale}>{render(figures)}</Figures> : <Waiting ctx={ctx} />
+}
+
+/** The cap on customers a day, which the traffic fields share, and this config's figure from the server. */
+function CustomersCap(props: { ctx: DocCtx }): ReactNode {
+  const { limits, customersPerDay, stale } = props.ctx
+  // A backend older than the cap sends no `customers_per_day` limit: no note then.
+  if (!limits.customers_per_day) return null
+  return (
+    <Note>
+      Base visitors, opening hours and traffic multipliers add up: the busiest day they allow may expect at most{' '}
+      {limits.customers_per_day.max.toLocaleString('en')} customers, or the configuration is invalid.
+      {customersPerDay === null ? null : (
+        <span className={stale ? 'opacity-60' : undefined}>
+          {' '}
+          This one: up to <strong>{customersPerDay.toLocaleString('en')}</strong> customers a day.
+        </span>
+      )}
+    </Note>
+  )
 }
 
 /** One line per customer type, with the selected type drawn thicker. */
@@ -245,6 +266,7 @@ const hour: Doc = {
           />
         ))}
         <P>The hour score is one third of a customer type’s visitor bonus (see “Base visitors / hour”). It changes how many people come, not whether they buy.</P>
+        <CustomersCap ctx={ctx} />
       </>
     )
   },
@@ -444,6 +466,7 @@ const trafficMultiplier: Doc = {
           The chart includes each type’s preference bonus, so two weathers with the same multiplier can still differ: a weather that more customer types like,
           at a temperature they like, draws a bigger crowd.
         </P>
+        <CustomersCap ctx={ctx} />
       </>
     )
   },
@@ -702,6 +725,7 @@ count    ~ Poisson(expected)`}</Formula>
             </Example>
           </>
         ))}
+        <CustomersCap ctx={ctx} />
       </>
     )
   },

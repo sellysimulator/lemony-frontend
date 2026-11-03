@@ -106,7 +106,6 @@ export const planningState = (over: Partial<GameState> = {}): GameState => ({
   },
   suggested_plan: { price: 0.55, recipe: { ice: 3, sugar: 3, lemons: 3 } },
   days: [],
-  last_day_events: [],
   config: defaultConfig(),
   limits: defaultLimits(),
   persisted: false,
