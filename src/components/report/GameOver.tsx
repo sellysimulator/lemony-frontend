@@ -1,5 +1,6 @@
 import type { ReactElement } from 'react'
 import { Link } from 'react-router-dom'
+import { retryPersist } from '../../api/socketHandlers'
 import { useGameStore } from '../../store/gameStore'
 import GameCharts from '../charts/GameCharts'
 import { Stat } from '../shared/Card'
@@ -17,8 +18,16 @@ export function SummaryTiles(props: { summary: GameSummary }): ReactElement {
       <Stat label="Total profit" value={money(s.total_profit)} tone={s.total_profit >= 0 ? 'good' : 'bad'} />
       <Stat label="Cups sold" value={s.total_buyers} />
       <Stat label="Visitors" value={s.total_visitors} />
-      <Stat label="Success rate" value={s.total_visitors ? pct(s.total_buyers / s.total_visitors) : '—'} />
-      <Stat label="Final popularity" value={s.final_popularity == null ? '—' : pct(s.final_popularity)} hint="Average of the daily success rates" />
+      <Stat
+        label="Success rate"
+        value={s.total_visitors ? pct(s.total_buyers / s.total_visitors) : '—'}
+        hint="All cups sold ÷ all visitors of the game, so a busy day weighs more"
+      />
+      <Stat
+        label="Final popularity"
+        value={s.final_popularity == null ? '—' : pct(s.final_popularity)}
+        hint="Average of the daily success rates, each day counting the same, so it can differ from the success rate"
+      />
       <Stat label="Sold-out misses" value={s.total_sold_out} tone={s.total_sold_out ? 'bad' : 'neutral'} />
       <div className="col-span-full flex flex-wrap gap-2 text-sm text-ink-muted">
         Spoiled in total:
@@ -32,27 +41,39 @@ export function SummaryTiles(props: { summary: GameSummary }): ReactElement {
   )
 }
 
-export default function GameOver(props: { summary: GameSummary | null; publicId: string | null; signedIn: boolean }): ReactElement {
+/**
+ * The end screen. "Play again" appears only once the game is saved: a new game would
+ * leave an unsaved one behind, so until then it shows the save in progress, or a retry.
+ */
+export default function GameOver(props: { summary: GameSummary | null; publicId: string | null; saveFailed: boolean; signedIn: boolean }): ReactElement {
   const openDayReport = useGameStore((s) => s.openDayReport)
   if (!props.summary) return <LoadingSpinner size="lg" label="Adding up the final numbers…" />
+  const saved = Boolean(props.publicId)
   return (
     <div className="space-y-5">
       <div className="flex flex-wrap items-center gap-3">
         <h1 className="flex items-center gap-2 text-3xl font-extrabold"><Trophy aria-hidden className="size-8 text-brand-strong" /> Final results — {props.summary.days_played} days</h1>
         <div className="ml-auto flex gap-2">
-          {/* A new game, starting from this game's settings. */}
-          <Link to="/new" state={props.summary.config ? { config: props.summary.config } : null} className="rounded-xl bg-brand px-5 py-2 font-bold">
-            Play again
-          </Link>
-          {props.signedIn && props.publicId ? (
+          {saved ? (
+            // A new game, starting from this game's settings.
+            <Link to="/new" state={props.summary.config ? { config: props.summary.config } : null} className="rounded-xl bg-brand px-5 py-2 font-bold">
+              Play again
+            </Link>
+          ) : props.saveFailed ? (
+            <button type="button" onClick={retryPersist} className="rounded-xl bg-brand px-5 py-2 font-bold">
+              Try saving again
+            </button>
+          ) : null}
+          {props.signedIn && saved ? (
             <Link to={`/profile/games/${props.publicId}`} className="rounded-xl border border-border px-4 py-2 text-sm">
               Saved to your profile
             </Link>
           ) : null}
         </div>
       </div>
-      <p className="text-sm text-ink-muted">
-        {props.publicId ? 'This game is saved.' : 'Saving this game…'} {!props.signedIn ? 'Sign in with Google to see saved games on your profile.' : ''}
+      <p className="text-sm text-ink-muted" role="status">
+        {saved ? 'This game is saved.' : props.saveFailed ? 'This game could not be saved yet. Try again to keep it; a new game opens once it is saved.' : 'Saving this game…'}{' '}
+        {!props.signedIn ? 'Sign in with Google to see saved games on your profile.' : ''}
       </p>
       <SummaryTiles summary={props.summary} />
       <GameCharts summary={props.summary} onSelectDay={openDayReport} />

@@ -52,6 +52,44 @@ export interface IngredientConfig {
   never_perishes: boolean
 }
 
+/**
+ * Every bound the server enforces and the client shows, from `core/limits.public_limits()`
+ * (sent in `GET /config/defaults` and in every game state). Ranges are inclusive, except
+ * `price_tolerance_above`, which must be above its minimum.
+ */
+export interface Limits {
+  num_days: Range
+  starting_cash: Range
+  /** Units of one ingredient in a cup, for the recipe ranges (and so every favourite amount). */
+  per_cup: Range
+  /** °C, for the temperature range and every weather's range. */
+  temperature: Range
+  /** Opening hours (and so every favourite hour). */
+  hour: Range
+  /** The cup price range. */
+  price: Range
+  quality_swing: Range
+  starting_popularity: Range
+  spawn_per_hour: Range
+  average_expense: Range
+  /** Ingredient tolerances, in units per cup. */
+  tolerance: Range
+  price_tolerance_below: Range
+  price_tolerance_above: Range
+  weather_multiplier: Range
+  unit_cost: Range
+  /** Pack sizes on sale per ingredient. */
+  packs: Range
+  pack_size: Range
+  pack_discount: Range
+  fresh_days: Range
+  max_days: Range
+  /** Packs of one size bought in a day. */
+  packs_per_size: Range
+  /** The price input's step, and the what-if curve's price grid. */
+  price_step: number
+}
+
 export interface GameConfig {
   num_days: number
   starting_cash: number
@@ -108,11 +146,16 @@ export interface DayRecord {
   temperature: number
   price: number
   recipe: Record<RecipeIngredient, number>
-  /** What the cups sold actually cost (discounts included); list price if none were sold. */
-  cost_per_cup: number
+  /**
+   * What the cups sold cost, oldest stock first at the price paid. On a day with no sales,
+   * what the cups you could have made would have cost; null with nothing to make a cup from.
+   * Games stored before this rule hold the list price on days with no sales.
+   */
+  cost_per_cup: number | null
   purchased: Record<IngredientName, number>
   spend: number
   revenue: number
+  /** Cash result: revenue minus everything bought today, even stock used on later days. */
   profit: number
   visitors: number
   buyers: number
@@ -143,6 +186,7 @@ export interface GameState {
   days: DayRecord[]
   last_day_events: CustomerEvent[]
   config: GameConfig
+  limits: Limits
   persisted: boolean
   public_id: string | null
   /** Present once the game is finished. */
@@ -197,6 +241,8 @@ export interface DayResultEvent {
 }
 export interface GameFinishedEvent { seq: number; summary: GameSummary }
 export interface GamePersistedEvent { seq: number; public_id: string }
+/** The finished game could not be saved yet; `retry_persist` tries again. */
+export interface GamePersistFailedEvent { seq: number }
 export interface ServerErrorEvent { code: string; message: string }
 
 /** The what-if curve for the morning plan. Per-price lists are aligned with `prices`. No `seq`: a request-scoped reply. */
@@ -207,9 +253,12 @@ export interface PlanPreviewOk {
   chance: number[]
   expected_visitors: number
   expected_cups: number[]
+  /** expected cups × (price − cost_per_cup). */
   expected_margin: number[]
+  /** The cups the stock plus the planned packs make with this recipe. */
   cups_possible: number
-  best_price: number
+  /** Their average cost (the one meaning of cost per cup); null when not a single cup can be made. */
+  cost_per_cup: number | null
 }
 export interface PlanPreviewRefused {
   request_id: string

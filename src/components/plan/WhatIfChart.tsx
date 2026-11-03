@@ -15,7 +15,7 @@ interface Props {
   waiting: boolean
 }
 
-/** The server's what-if curve: expected margin across prices, with your price and the best one marked. */
+/** The server's what-if curve: expected margin across prices (at the plan's cost per cup), with your price marked. */
 export default function WhatIfChart({ preview, price, waiting }: Props): ReactElement {
   const i = nearestIndex(preview.prices, price)
   return (
@@ -27,7 +27,7 @@ export default function WhatIfChart({ preview, price, waiting }: Props): ReactEl
       </div>
       <ChartBox
         title="What if I charge…"
-        caption="Expected values for today's weather. Real customers vary."
+        caption="Expected values for today's weather, at today's cost per cup. Real customers vary."
         ariaLabel="Expected margin for each price you could charge today"
         height={220}
         legend={<Legend items={whatIfLegend} />}

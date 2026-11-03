@@ -1,5 +1,12 @@
 /** A day-1 game on the backend's default configuration (app/core/defaults.py), for component tests. */
-import type { GameConfig, GameState, IngredientConfig, InventoryLine, PersonPreferences } from '../../types/game'
+import type { GameConfig, GameState, IngredientConfig, InventoryLine, Limits, PersonPreferences } from '../../types/game'
+
+/**
+ * The limits exactly as the server serves them: `limits.json` is the backend's
+ * `tests/fixtures/limits.json`, and the backend's tests fail if either copy drifts.
+ */
+const LIMITS = Object.values(import.meta.glob<Limits>('./limits.json', { eager: true, import: 'default' }))[0]
+export const defaultLimits = (): Limits => structuredClone(LIMITS)
 
 const packs = [
   { size: 100, discount: 0 },
@@ -82,6 +89,7 @@ export const planningState = (over: Partial<GameState> = {}): GameState => ({
   days: [],
   last_day_events: [],
   config: defaultConfig(),
+  limits: defaultLimits(),
   persisted: false,
   public_id: null,
   summary: null,

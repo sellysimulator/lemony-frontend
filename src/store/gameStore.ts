@@ -52,6 +52,8 @@ interface GameStoreState {
   watch: WatchedDay | null
   summary: GameSummary | null
   publicId: string | null
+  /** The finished game's save failed (`game_persist_failed`) and no retry is under way. */
+  persistFailed: boolean
   submitting: boolean
   creating: boolean
   /** Set by game_created; the config screen navigates on it and clears it. */
@@ -66,6 +68,9 @@ interface GameStoreActions {
   handleDayResult(data: DayResultEvent): void
   handleGameFinished(seq: number, summary: GameSummary): void
   handleGamePersisted(seq: number, publicId: string): void
+  handleGamePersistFailed(seq: number): void
+  /** A retry of the save was sent: show "saving" again until the server answers. */
+  beginRetryPersist(): void
   handleNoActiveGame(): void
   handleGameAbandoned(): void
   handleError(code: string, message: string): void
@@ -90,6 +95,7 @@ const initial: GameStoreState = {
   watch: null,
   summary: null,
   publicId: null,
+  persistFailed: false,
   submitting: false,
   creating: false,
   justCreated: false,
@@ -136,6 +142,7 @@ export const useGameStore = create<GameStoreState & GameStoreActions>((set, get)
       state,
       resume: 'active',
       publicId: state.public_id,
+      persistFailed: state.public_id ? false : s.persistFailed,
       summary: state.summary ?? s.summary,
       submitting: false,
       ...next,
@@ -181,8 +188,17 @@ export const useGameStore = create<GameStoreState & GameStoreActions>((set, get)
     handleGamePersisted(seq, publicId) {
       applySequenced(seq, (s) => ({
         publicId,
+        persistFailed: false,
         summary: s.summary ? { ...s.summary, public_id: publicId } : s.summary,
       }))
+    },
+
+    handleGamePersistFailed(seq) {
+      applySequenced(seq, (s) => (s.publicId ? {} : { persistFailed: true }))
+    },
+
+    beginRetryPersist() {
+      set({ persistFailed: false })
     },
 
     handleNoActiveGame() {

@@ -41,7 +41,7 @@ export default function CashWaterfall(props: DayChartProps & { summary: GameSumm
       ariaLabel="Floating bars of the cash at the start and end of each day"
       legend={<Legend items={ITEMS} />}
       table={{
-        head: ['Day', 'Cash at start', 'Cash at end', 'Change'],
+        head: ['Day', 'Cash at start', 'Cash at end', 'Cash result'],
         rows: days.map((d, i) => [d.day, money(spans[i][0]), money(spans[i][1]), money(spans[i][1] - spans[i][0])]),
       }}
     >

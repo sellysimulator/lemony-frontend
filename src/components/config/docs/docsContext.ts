@@ -1,5 +1,5 @@
 import { createContext } from 'react'
-import type { GameConfig } from '../../../types/game'
+import type { GameConfig, Limits } from '../../../types/game'
 
-/** The config being edited, so help examples and charts reflect the player's values. */
-export const DocsConfigContext = createContext<GameConfig | null>(null)
+/** The config being edited and the server's limits, so help examples reflect the player's values and the real bounds. */
+export const DocsConfigContext = createContext<{ config: GameConfig; limits: Limits } | null>(null)

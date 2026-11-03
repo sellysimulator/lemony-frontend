@@ -48,7 +48,7 @@ const PREVIEW: PlanPreviewOk = {
   expected_cups: [28.21, 21.5, 15.9, 9.04, 3.33],
   expected_margin: [1.11, 3.33, 4.44, 2.22, 0.55],
   cups_possible: 40,
-  best_price: 0.35,
+  cost_per_cup: 0.17,
 }
 
 const last = (): Drawn => {
@@ -95,11 +95,10 @@ describe('WhatIfChart', () => {
     expect(marked(byLabel(last(), /your price/i))).toEqual([4])
   })
 
-  it('marks best_price with a dot at its grid position', () => {
+  it('draws the curve and your price only: there is no best-price marker', () => {
     render(<WhatIfChart preview={PREVIEW} price={0.25} waiting={false} />)
-    const best = byLabel(last(), /best price/i)
-    expect(marked(best)).toEqual([2])
-    expect(best.data[2]).toBe(4.44)
+    expect(last().data.datasets.map((d) => d.label)).toEqual(['Expected margin', 'Your price'])
+    expect(screen.queryByText(/best price/i)).toBeNull()
   })
 
   it('shows chance, expected cups of visitors and margin at the marked price, from the reply', () => {
@@ -112,7 +111,7 @@ describe('WhatIfChart', () => {
 
   it('says the figures are expected values', () => {
     render(<WhatIfChart preview={PREVIEW} price={0.3} waiting={false} />)
-    expect(screen.getByText("Expected values for today's weather. Real customers vary.")).toBeInTheDocument()
+    expect(screen.getByText("Expected values for today's weather, at today's cost per cup. Real customers vary.")).toBeInTheDocument()
   })
 
   it('has a table view with every price and its server figures', () => {
@@ -140,6 +139,79 @@ describe('WhatIfChart', () => {
     const other = { ...PREVIEW, expected_margin: [9, 8, 7, 6, 5] }
     render(<WhatIfChart preview={other} price={0.3} waiting={false} />)
     expect(byLabel(last(), /margin/i).data).toEqual([9, 8, 7, 6, 5])
+  })
+})
+
+/** A plan-screen tile's whole text: its label, value and note. */
+const tile = (label: string): string => screen.getByText(label, { selector: 'div' }).parentElement?.textContent ?? ''
+const reply = (over: Partial<PlanPreviewOk> = {}) =>
+  act(() => {
+    useGameStore.setState({ planPreview: { requestId: 'r1', reply: { ...PREVIEW, ...over }, refused: false, waiting: false } })
+  })
+
+describe('PlanDay cost and margin per cup', () => {
+  it('shows the cost per cup the server sent, and the margin as a share of the price', () => {
+    render(<PlanDay state={planningState()} />)
+    fireEvent.change(screen.getByLabelText('Price per cup ($)'), { target: { value: '0.6' } })
+    reply({ cost_per_cup: 0.17 })
+    expect(tile('Cost per cup')).toContain('$0.17')
+    // $0.43 of a $0.60 price is 72% (as a markup over cost it would read 253%).
+    expect(tile('Margin per cup')).toContain('$0.43 (72%)')
+  })
+
+  it('computes nothing itself: before a reply the tiles wait, and the count of cups comes from the reply', () => {
+    render(<PlanDay state={planningState()} />)
+    expect(tile('Cost per cup')).toContain('…')
+    expect(tile('Margin per cup')).toContain('…')
+    expect(screen.getByText(/you can make/).textContent).toContain('…')
+    reply({ cups_possible: 37 })
+    expect(screen.getByText(/you can make/).textContent).toContain('37')
+  })
+
+  it('shows a dash with no stock for a single cup', () => {
+    render(<PlanDay state={planningState()} />)
+    reply({ cups_possible: 0, cost_per_cup: null })
+    expect(tile('Cost per cup')).toContain('–')
+    expect(tile('Cost per cup')).toContain('No stock for a cup')
+    expect(tile('Margin per cup')).toContain('–')
+  })
+
+  it("explains that the day's cash result subtracts every pack bought today", () => {
+    render(<PlanDay state={planningState()} />)
+    fireEvent.click(screen.getByLabelText('Add a pack of 100 lemons'))
+    const note = screen.getByText(/everything you buy today/)
+    expect(note.textContent).toContain('$5.00 so far')
+    expect(note.textContent).toContain('even stock you will use on later days')
+  })
+})
+
+describe('PlanDay pack buttons', () => {
+  it('stop at the server limit of packs of one size a day', () => {
+    const state = planningState({ cash: 1000 })
+    state.limits.packs_per_size = { min: 0, max: 2 }
+    render(<PlanDay state={state} />)
+    const add = screen.getByLabelText('Add a pack of 100 ice')
+    fireEvent.click(add)
+    fireEvent.click(add)
+    expect(add).toBeDisabled()
+    expect(add).toHaveAttribute('title', 'Up to 2 packs of one size a day')
+    fireEvent.click(add)
+    expect(add.previousElementSibling?.textContent).toBe('2')
+  })
+
+  it('never order a negative count: minus is off at zero', () => {
+    render(<PlanDay state={planningState()} />)
+    const remove = screen.getByLabelText('Remove a pack of 100 ice')
+    expect(remove).toBeDisabled()
+    fireEvent.click(remove)
+    expect(remove.nextElementSibling?.textContent).toBe('0')
+  })
+
+  it('step the price by the server price step', () => {
+    const state = planningState()
+    state.limits.price_step = 0.1
+    render(<PlanDay state={state} />)
+    expect(screen.getByLabelText('Price per cup ($)')).toHaveAttribute('step', '0.1')
   })
 })
 

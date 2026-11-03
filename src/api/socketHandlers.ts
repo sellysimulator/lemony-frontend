@@ -14,6 +14,7 @@ import type {
   GameCreatedEvent,
   GameFinishedEvent,
   GamePersistedEvent,
+  GamePersistFailedEvent,
   GameStateEvent,
   PlanPreviewEvent,
   PlanPreviewRequest,
@@ -79,6 +80,10 @@ socket.on('game_persisted', (data: GamePersistedEvent) => {
   useGameStore.getState().handleGamePersisted(data.seq, data.public_id)
 })
 
+socket.on('game_persist_failed', (data: GamePersistFailedEvent) => {
+  useGameStore.getState().handleGamePersistFailed(data.seq)
+})
+
 socket.on('no_active_game', () => {
   clearStoredGame()
   useGameStore.getState().handleNoActiveGame()
@@ -130,6 +135,14 @@ export function previewPlan(plan: PlanPreviewRequest): void {
 export function acknowledgeDay(day: number): void {
   const { gameId } = useGameStore.getState()
   if (gameId) socket.emit('ack_day', { game_id: gameId, day })
+}
+
+/** Asks the server to save the finished game again after `game_persist_failed`. */
+export function retryPersist(): void {
+  const { gameId } = useGameStore.getState()
+  if (!gameId) return
+  useGameStore.getState().beginRetryPersist()
+  socket.emit('retry_persist', { game_id: gameId })
 }
 
 export function abandonGame(): void {

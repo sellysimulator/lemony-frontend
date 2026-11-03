@@ -1,12 +1,13 @@
 import http from './http'
-import type { GameConfig, GameSummary } from '../types/game'
+import type { DayPlanPayload, GameConfig, GameSummary, Limits } from '../types/game'
 
 export interface ConfigDefaults {
   config: GameConfig
   weather_types: string[]
   person_types: string[]
   ingredient_names: string[]
-  max_num_days: number
+  /** Every bound the server enforces; the config screen and the help read them from here. */
+  limits: Limits
 }
 
 export async function getConfigDefaults(): Promise<ConfigDefaults> {
@@ -15,6 +16,18 @@ export async function getConfigDefaults(): Promise<ConfigDefaults> {
 
 export async function validateConfig(config: GameConfig): Promise<{ valid: boolean; message: string | null }> {
   return (await http.post('/config/validate', config)).data
+}
+
+/** The engine's day-1 figures for these packs and this recipe (cash is not checked). */
+export interface CupCost {
+  spend: number
+  cups_possible: number
+  /** The plan screen's cost per cup; null when not a single cup can be made. */
+  cost_per_cup: number | null
+}
+
+export async function getCupCost(config: GameConfig, purchases: DayPlanPayload['purchases'], recipe: DayPlanPayload['recipe']): Promise<CupCost> {
+  return (await http.post<CupCost>('/config/cup-cost', { config, purchases, recipe })).data
 }
 
 export interface UserStats {

@@ -10,7 +10,9 @@ import {
   RECIPE_INGREDIENTS,
   WEATHER_TYPES,
   type GameConfig,
+  type DayPlanPayload,
   type IngredientConfig,
+  type Limits,
   type PackOption,
   type IngredientName,
   type PersonPreferences,
@@ -25,7 +27,6 @@ import {
   buyDecision,
   buyProbability,
   cheapFloor,
-  cupsAffordable,
   expectedSpawn,
   hazard,
   ingredientScore,
@@ -41,10 +42,13 @@ import {
   type ScoredRange,
 } from '../../../game/configMath'
 import { INGREDIENT_SERIES, PERSON_SERIES, WEATHER_SERIES } from '../../charts/chartSetup'
+import CupCostExample from './CupCostExample'
 import { BarChart, Example, Formula, H, LineChart, List, Note, P, Table, WeatherBands, type Series } from './primitives'
 
 export interface DocCtx {
   config: GameConfig
+  /** The server's bounds (GET /config/defaults): the help quotes them, never a copy. */
+  limits: Limits
   person?: PersonType
   ingredient?: IngredientName
   weather?: Weather
@@ -59,6 +63,8 @@ const UNIT: Record<RecipeIngredient, string> = { ice: 'ice cubes', sugar: 'spoon
 const round2 = (n: number) => Math.round(n * 100) / 100
 const roundTo = (n: number, step: number) => Math.round(n / step) * step
 const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1)
+/** A temperature with a true minus sign. */
+const deg = (n: number) => `${n < 0 ? '−' : ''}${Math.abs(n)}°C`
 
 function priceSteps(cfg: GameConfig): number[] {
   const r = cfg.min_max_values.price
@@ -140,19 +146,19 @@ function smallestPack(cfg: IngredientConfig): PackOption {
   return cfg.packs.reduce((a, b) => (b.size < a.size ? b : a))
 }
 
-/** A cup made entirely from each ingredient's biggest pack. */
-function bulkCostPerCup(cfg: GameConfig, recipe: Record<RecipeIngredient, number>): number {
-  const unit = (n: IngredientName) => {
-    const ing = cfg.ingredients[n]
-    const big = ing.packs.reduce((a, b) => (b.size > a.size ? b : a))
-    return packPrice(ing, big) / big.size
-  }
-  return RECIPE_INGREDIENTS.reduce((sum, n) => sum + recipe[n] * unit(n), 0) + unit('cups')
+function biggestPack(cfg: IngredientConfig): PackOption {
+  return cfg.packs.reduce((a, b) => (b.size > a.size ? b : a))
 }
 
-function costPerCup(cfg: GameConfig, recipe: Record<RecipeIngredient, number>): number {
-  return RECIPE_INGREDIENTS.reduce((sum, n) => sum + recipe[n] * cfg.ingredients[n].unit_cost, 0) + cfg.ingredients.cups.unit_cost
+/** One pack of each ingredient, the smallest or the biggest, as the plan sends it. */
+function onePackOfEach(cfg: GameConfig, which: 'smallest' | 'biggest'): DayPlanPayload['purchases'] {
+  const pick = which === 'smallest' ? smallestPack : biggestPack
+  return Object.fromEntries(INGREDIENTS.map((n) => [n, { [String(pick(cfg.ingredients[n]).size)]: 1 }]))
 }
+
+const COST_RULE = `cost per cup = the average cost of the cups your stock can make today
+each ingredient: oldest stock first, at the price you paid,
+                 then today's packs, the dearest per unit first`
 
 function refusal(cfg: GameConfig, t: PersonType, price: number, recipe: Recipe, scores: Recipe): string {
   return REASON_TEXT[refusalReason(cfg.people_preferences[t], price, recipe, scores)]
@@ -194,11 +200,13 @@ const game: Doc = {
 
 const numDays: Doc = {
   title: () => 'Number of days',
-  body: ({ config }) => {
+  body: ({ config, limits }) => {
     const odds = weatherOdds(config)
     return (
       <>
-        <P>How many days the game lasts, from 1 to 30. Each day you plan in the morning, then watch the day play out.</P>
+        <P>
+          How many days the game lasts, from {limits.num_days.min} to {limits.num_days.max}. Each day you plan in the morning, then watch the day play out.
+        </P>
         <H>How it affects the game</H>
         <List
           items={[
@@ -224,8 +232,6 @@ const startingCash: Doc = {
   title: () => 'Starting cash',
   body: ({ config }) => {
     const plan = samplePlan(config)
-    const cup = costPerCup(config, plan.recipe)
-    const basket = INGREDIENTS.reduce((sum, n) => sum + packPrice(config.ingredients[n], smallestPack(config.ingredients[n])), 0)
     return (
       <>
         <P>The money you have on the morning of day 1. There are no loans: you can never spend more than you have on ingredients.</P>
@@ -239,12 +245,18 @@ const startingCash: Doc = {
           ]}
         />
         <Example>
-          The cheapest way to have some of everything is the smallest pack of each ingredient: <strong>{money(basket)}</strong>. Your{' '}
-          {money(config.starting_cash)} covers that <strong>{basket > 0 ? (config.starting_cash / basket).toFixed(1) : '∞'}×</strong>.
-          <br />
-          At list prices, a mid-range recipe ({plan.recipe.ice} ice, {plan.recipe.sugar} sugar, {plan.recipe.lemons} lemons, plus a cup) costs{' '}
-          <strong>{money(cup)}</strong> per cup, so your starting cash is worth about <strong>{cup > 0 ? cupsAffordable(config.starting_cash, cup) : '∞'} cups</strong>{' '}
-          of ingredients. Pack discounts stretch that further.
+          <CupCostExample config={config} purchases={onePackOfEach(config, 'smallest')} recipe={plan.recipe}>
+            {(c) => (
+              <>
+                The cheapest way to have some of everything is the smallest pack of each ingredient: <strong>{money(c.spend)}</strong>. Your{' '}
+                {money(config.starting_cash)} covers that <strong>{c.spend > 0 ? (config.starting_cash / c.spend).toFixed(1) : '∞'}×</strong>.
+                <br />
+                With a mid-range recipe ({plan.recipe.ice} ice, {plan.recipe.sugar} sugar, {plan.recipe.lemons} lemons, plus a cup) those packs make{' '}
+                <strong>{c.cups_possible} cups</strong>
+                {c.cost_per_cup === null ? '' : <>, at <strong>{money(c.cost_per_cup)}</strong> a cup</>}. Bigger packs with a discount lower the cost per cup.
+              </>
+            )}
+          </CupCostExample>
         </Example>
       </>
     )
@@ -467,13 +479,13 @@ function dayVisitors(cfg: GameConfig, w: Weather): number {
 
 const trafficMultiplier: Doc = {
   title: ({ weather }) => `Traffic multiplier${weather ? ` (${weather})` : ''}`,
-  body: ({ config, weather = 'sunny' }) => {
+  body: ({ config, limits, weather = 'sunny' }) => {
     const m = config.weather_multipliers[weather]
     return (
       <>
         <P>
           Scales how many people go out in this weather. It applies to every customer type, after their preference bonus. 1.0 is normal traffic, 0.5 is half,
-          0.2 is one fifth. It can go up to 3.
+          0.2 is one fifth. It goes from {limits.weather_multiplier.min} up to {limits.weather_multiplier.max}.
         </P>
         <Formula>expected visitors per hour = base × (1 + bonus) × multiplier</Formula>
         <P>
@@ -497,7 +509,7 @@ const trafficMultiplier: Doc = {
 
 const weatherRange: Doc = {
   title: ({ weather }) => `Temperature range${weather ? ` (${weather})` : ''}`,
-  body: ({ config, weather = 'sunny' }) => {
+  body: ({ config, limits, weather = 'sunny' }) => {
     const odds = weatherOdds(config)
     const r = config.weather_temperature_ranges[weather]
     return (
@@ -511,7 +523,10 @@ const weatherRange: Doc = {
           With these ranges, a day is {weather} with a chance of <strong>{pct(odds[weather])}</strong>, which is about{' '}
           <strong>{(odds[weather] * config.num_days).toFixed(1)}</strong> of your {config.num_days} days.
         </Example>
-        <Note>Each range must stay within −30°C to 60°C, and together the ranges must cover the whole temperature range with no gaps, or the configuration is invalid.</Note>
+        <Note>
+          Each range must stay within {deg(limits.temperature.min)} to {deg(limits.temperature.max)}, and together the ranges must cover the whole temperature
+          range with no gaps, or the configuration is invalid.
+        </Note>
       </>
     )
   },
@@ -547,13 +562,14 @@ count    = random (Poisson) around expected`}</Formula>
           one “price tolerance above” past it.
         </P>
         <P>
-          When someone says no, the reason is “too cheap” if the price looked suspicious. Otherwise it is “too pricey” if the price is further over their budget
-          (counted in price tolerances) than their least favourite ingredient is from perfect, or else that ingredient.
+          When someone says no, the day report gives one reason. While your popularity is under 50%, a customer who would have bought at a neutral 50% says “
+          {REASON_TEXT.not_popular}”. Otherwise it is “too cheap” if the price looked suspicious, “too pricey” if the price is further over their budget (counted
+          in price tolerances) than their least favourite ingredient is from perfect, or else that ingredient.
         </P>
         <H>3. How popular the stand is</H>
         <P>
-          Every chance to buy is then multiplied by 0.5 + popularity (never above 100%). Popularity is the average share of visitors who bought on the days so
-          far and starts at {pct(config.starting_popularity)} (see “Starting popularity”). The example below is at a neutral 50%.
+          Every chance to buy is then multiplied by 0.5 + popularity, never above 100%. Popularity is the average of your daily success rates so far; until a day
+          has had visitors it is the starting popularity, {pct(config.starting_popularity)} (see “Starting popularity”). The example below is at a neutral 50%.
         </P>
         <Example title={`Worked example: ${money(plan.price)} with ${plan.recipe.ice} ice, ${plan.recipe.sugar} sugar, ${plan.recipe.lemons} lemons`}>
           <Table
@@ -586,13 +602,13 @@ count    = random (Poisson) around expected`}</Formula>
 
 const qualitySwing: Doc = {
   title: () => 'Recipe effect on price',
-  body: ({ config }) => {
+  body: ({ config, limits }) => {
     const s = config.quality_swing
     const adult = config.people_preferences.Adult
     return (
       <>
         <P>
-          How much your recipe moves what customers are willing to pay, from 0 to 1. With {s}, a cup a customer loves (quality 100%) makes them pay up to{' '}
+          How much your recipe moves what customers are willing to pay, from {limits.quality_swing.min} to {limits.quality_swing.max}. With {s}, a cup a customer loves (quality 100%) makes them pay up to{' '}
           <strong>{pct(1 + s)}</strong> of their budget, an average cup {pct(1)}, and a cup they dislike in every way <strong>{pct(1 - s)}</strong>.
         </P>
         <Formula>would pay = budget × (1 + quality swing × (2 × quality − 1))</Formula>
@@ -615,7 +631,7 @@ const POPULARITY_STEPS = [0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1]
 
 const startingPopularity: Doc = {
   title: () => 'Starting popularity',
-  body: ({ config }) => {
+  body: ({ config, limits }) => {
     const s = config.starting_popularity
     const plan = typicalPlan(config)
     const chances = PERSON_TYPES.map((t) => buyDecision(config, config.people_preferences[t], plan.price, plan.recipe).chance)
@@ -625,28 +641,37 @@ const startingPopularity: Doc = {
     return (
       <>
         <P>
-          Popularity is how well liked your stand is, from 0 (0%) to 1 (100%). It carries over from day to day and multiplies every customer’s chance to buy, on
-          top of what your price and recipe give. This is where it starts: with {s}, day 1’s chances are multiplied by <strong>×{(0.5 + s).toFixed(2)}</strong>.
+          Popularity is how well liked your stand is, from 0% to 100%. It multiplies every customer’s chance to buy, on top of what your price and recipe give.
+          This is where it starts: with {s}, day 1’s chances are multiplied by <strong>×{(0.5 + s).toFixed(2)}</strong>.
         </P>
-        <H>How it changes</H>
-        <Formula>{`success rate = cups sold ÷ visitors                      // one day, 0 to 1
-popularity   = average(success rate of every day so far that had visitors)
-             = starting popularity, until a day has had visitors`}</Formula>
+        <H>How it is worked out</H>
+        <Formula>{`success rate = cups sold ÷ visitors           // one day
+popularity   = the plain average of the success rates
+               of every day so far that had visitors`}</Formula>
         <List
           items={[
-            'It is worked out each morning from the days already played, then holds for the whole day.',
-            'Visitors who find you sold out count as not sold, so running out of stock lowers popularity.',
-            'Days with no visitors are skipped: they say nothing about how well liked you are.',
-            'Every day counts the same, so in a long game one day moves popularity less and less.',
+            'The starting popularity is used only until a day has had visitors. From then on it is dropped: it is not part of the average.',
+            'It is worked out each morning and holds for the whole day.',
+            'Every day counts the same, however many visitors it had, so in a long game one day moves it less and less.',
+            'Visitors who find you sold out count as not sold. Days with no visitors are skipped.',
           ]}
         />
         <H>How it changes sales</H>
         <Formula>{`chance to buy = price-and-recipe chance × (0.5 + popularity)      // at most 100%`}</Formula>
         <List
           items={[
-            '0.5 (50%) is neutral: customers buy exactly as price and recipe say.',
-            'At 0 every chance is halved; at 1 every chance is raised by half.',
-            'It feeds itself: sell to more than half your visitors and popularity rises, lifting tomorrow’s chances; sell to fewer and it sinks.',
+            '50% is neutral: customers buy exactly as price and recipe say. At 0% every chance is halved; at 100% it is 1.5 times as high.',
+            <>
+              Under 50%, some visitors who would have bought at a neutral 50% say no. The day report counts them as “{REASON_TEXT.not_popular}”. At 50% or more,
+              popularity never causes a no.
+            </>,
+          ]}
+        />
+        <H>What makes it go up or down</H>
+        <List
+          items={[
+            'A day raises popularity when its success rate is above the popularity it was played with, and lowers it when below. 50% is not the line: at 30% popularity, selling to 40% of your visitors raises it.',
+            'The weather changes who comes out. Each customer type has its own budget and taste, so the same price and recipe can sell to a different share of visitors on a rainy day than on a sunny one.',
           ]}
         />
         <LineChart
@@ -667,7 +692,15 @@ popularity   = average(success rate of every day so far that had visitors)
             ])}
           />
         </Example>
-        <Note>Must be between 0 and 1. The default, 0.5, makes day 1 play exactly on price and recipe.</Note>
+        <H>On the end screen</H>
+        <P>
+          <strong>Success rate</strong> is all cups sold ÷ all visitors of the game, so a busy day counts more. <strong>Final popularity</strong> is the average
+          of the daily success rates, so every day counts the same. They differ when days have different crowds: 90 of 100 visitors one day and 1 of 10 the
+          next is an 83% success rate but a 50% final popularity.
+        </P>
+        <Note>
+          Must be between {limits.starting_popularity.min} and {limits.starting_popularity.max}. 0.5 makes day 1 play exactly on price and recipe.
+        </Note>
       </>
     )
   },
@@ -757,7 +790,7 @@ const averageExpense: Doc = {
 function priceToleranceDoc(): Doc {
   return {
     title: ({ person }) => `Price tolerance${person ? ` (${person})` : ''}`,
-    body: ({ config, person = 'Child' }) => {
+    body: ({ config, limits, person = 'Child' }) => {
       const p = config.people_preferences[person]
       const t = p.tolerances.price
       const best = willingnessToPay(config, p, 1)
@@ -780,7 +813,10 @@ function priceToleranceDoc(): Doc {
             For their favourite cup they would pay {money(best)}: half buy at that price, about 95% at {money(best - t.above * p.average_expense)}, and about
             5% at {money(best + t.above * p.average_expense)}.
           </Example>
-          <Note>Below must be between 0% and 100%; above must be more than 0% and at most 500%.</Note>
+          <Note>
+            Below must be between {pct(limits.price_tolerance_below.min)} and {pct(limits.price_tolerance_below.max)}; above must be more than{' '}
+            {pct(limits.price_tolerance_above.min)} and at most {pct(limits.price_tolerance_above.max)}.
+          </Note>
         </>
       )
     },
@@ -950,17 +986,35 @@ const unitCost: Doc = {
           one cup. Each pack size can knock a discount off this price (see “Packs on sale”).
         </P>
         <Formula>{`pack price   = size × unit cost × (1 − pack discount)
-cost per cup = ice + sugar + lemons + 1 cup, each at the unit price you paid`}</Formula>
+${COST_RULE}`}</Formula>
         <P>
-          In the game, the cost per cup comes from the stock you actually use, oldest first, at the price you paid for it. Cheap bulk stock lowers it, and
-          so does using up older stock bought at a discount.
+          So the cost per cup comes from the stock you actually hold, at the price you paid for it. Cheap bulk stock lowers it, and so does using up older stock
+          bought at a discount. The planning screen shows it for the plan you are making.
         </P>
-        <Example title="Cost of a mid-range cup at list price">
-          <Table head={['Ingredient', 'Units', 'Unit cost', 'Subtotal']} rows={lines.map(([name, qty, c]) => [name, qty, money(c), money(qty * c)])} />
+        <Example title="A mid-range cup on day 1">
+          <Table head={['Ingredient', 'Units per cup', 'List price per unit']} rows={lines.map(([name, qty, c]) => [name, qty, money(c)])} />
           <p className="mt-2">
-            Total: <strong>{money(costPerCup(config, plan.recipe))}</strong> per cup. Selling at {money(plan.price)} leaves{' '}
-            <strong>{money(plan.price - costPerCup(config, plan.recipe))}</strong> per cup sold. Bought entirely from the biggest packs, the cup would cost{' '}
-            <strong>{money(bulkCostPerCup(config, plan.recipe))}</strong>.
+            <CupCostExample config={config} purchases={onePackOfEach(config, 'smallest')} recipe={plan.recipe}>
+              {(c) =>
+                c.cost_per_cup === null ? (
+                  'One smallest pack of each ingredient does not make a single cup of this recipe.'
+                ) : (
+                  <>
+                    One smallest pack of each ingredient makes {c.cups_possible} cups at <strong>{money(c.cost_per_cup)}</strong> a cup. Selling at{' '}
+                    {money(plan.price)} leaves <strong>{money(plan.price - c.cost_per_cup)}</strong> per cup sold.{' '}
+                  </>
+                )
+              }
+            </CupCostExample>
+            <CupCostExample config={config} purchases={onePackOfEach(config, 'biggest')} recipe={plan.recipe}>
+              {(c) =>
+                c.cost_per_cup === null ? null : (
+                  <>
+                    One biggest pack of each makes {c.cups_possible} cups at <strong>{money(c.cost_per_cup)}</strong> a cup.
+                  </>
+                )
+              }
+            </CupCostExample>
           </p>
         </Example>
       </>
@@ -970,23 +1024,23 @@ cost per cup = ice + sugar + lemons + 1 cup, each at the unit price you paid`}</
 
 const packs: Doc = {
   title: ({ ingredient }) => `Packs on sale${ingredient ? ` (${ingredient})` : ''}`,
-  body: ({ config, ingredient = 'lemons' }) => {
+  body: ({ config, limits, ingredient = 'lemons' }) => {
     const cfg = config.ingredients[ingredient]
     const small = smallestPack(cfg)
-    const big = cfg.packs.reduce((a, b) => (b.size > a.size ? b : a))
+    const big = biggestPack(cfg)
     const smallUnit = packPrice(cfg, small) / small.size
     const breakEven = smallUnit > 0 ? breakEvenUnits(packPrice(cfg, big), smallUnit) : 0
     return (
       <>
         <P>
           The packs you can buy each morning. Each pack has a size and its own discount, so bigger packs can be cheaper per unit. You always buy whole
-          packs, and any number of each.
+          packs, up to {limits.packs_per_size.max} of each size a day.
         </P>
         <Formula>pack price = size × unit cost × (1 − discount), rounded to the cent</Formula>
         <List
           items={[
-            'From 1 to 8 packs. Sizes are whole numbers from 1 to 10,000, with no repeats.',
-            'Discounts go from 0% to 90%. Only pack discounts exist; there is no discount for buying many packs.',
+            `From ${limits.packs.min} to ${limits.packs.max} pack sizes. Sizes are whole numbers from ${limits.pack_size.min} to ${limits.pack_size.max.toLocaleString('en')}, with no repeats.`,
+            `Discounts go from ${pct(limits.pack_discount.min)} to ${pct(limits.pack_discount.max)}. Only pack discounts exist; there is no discount for buying many packs.`,
             'A warning appears when a bigger pack costs more per unit than a smaller one. It is allowed, but players will rarely buy that pack.',
           ]}
         />
@@ -1020,10 +1074,16 @@ const packs: Doc = {
             </P>
           </>
         ) : null}
-        <H>Margin per cup</H>
+        <H>Cost and margin per cup</H>
+        <Formula>{COST_RULE}</Formula>
         <P>
-          Every purchase is kept as its own batch with the price you paid. The planning screen’s cost per cup is the average cost of the cups you can make
-          today, oldest stock first. The day report shows what the cups you sold actually cost.
+          Every purchase is kept as its own batch with the price you paid. The planning screen’s cost per cup is the average cost of the cups you can make today:
+          your oldest stock first, then today’s packs, the dearest per unit first, so the cheapest stock is kept longest. The what-if chart’s expected margin
+          uses the same cost. Margin per cup is the price minus that cost; its percentage is the share of the price you keep.
+        </P>
+        <P>
+          The day report shows what the cups you sold cost. On a day with no sales it shows what the cups you could have made would have cost, or “–” if you had
+          nothing to make a cup from.
         </P>
       </>
     )

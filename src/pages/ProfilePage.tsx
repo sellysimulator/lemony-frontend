@@ -95,8 +95,15 @@ function ProfilePage(): ReactElement {
           <Stat label="Cups sold" value={stats.total_cups_sold} />
           <Stat label="Success rate" value={stats.total_visitors ? pct(stats.total_cups_sold / stats.total_visitors) : '—'} />
           <Stat label="Total profit" value={money(stats.total_profit)} tone={stats.total_profit >= 0 ? 'good' : 'bad'} />
-          <Stat label="Best game" value={stats.best_profit !== null ? money(stats.best_profit) : '—'} />
+          <Stat
+            label="Best game"
+            value={stats.best_profit !== null ? money(stats.best_profit) : '—'}
+            hint="Your highest profit in one game, across games of every length and setting"
+          />
           <Stat label="Average profit" value={stats.avg_profit !== null ? money(stats.avg_profit) : '—'} />
+          <p className="col-span-full text-xs text-ink-muted">
+            Best game and average profit compare all your games as they are: a 30-day game and a 3-day one, or games with different settings, count side by side.
+          </p>
         </div>
       ) : null}
 

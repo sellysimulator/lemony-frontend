@@ -1,19 +1,18 @@
 import type { ReactElement, ReactNode } from 'react'
 import { Plus, Trash2, TriangleAlert } from 'lucide-react'
-import type { IngredientConfig, PackOption } from '../../types/game'
+import type { IngredientConfig, Limits, PackOption } from '../../types/game'
 import { packPrice } from '../../game/configMath'
 import { money, pct } from '../../utils/format'
 import { NumberField } from './fields'
 
-const MAX_PACKS = 8
-const MAX_SIZE = 10_000
-const MAX_DISCOUNT_PCT = 90
+/** A 0–1 share as a percentage with at most one decimal (0.9 → 90, never 90.00000000000001). */
+const toPct = (share: number) => Math.round(share * 1000) / 10
 
 /** A new row: double the biggest pack, keeping its discount, so it is a sensible next tier. */
-function nextPack(packs: PackOption[]): PackOption {
+function nextPack(packs: PackOption[], maxSize: number): PackOption {
   if (!packs.length) return { size: 50, discount: 0 }
   const biggest = packs.reduce((a, b) => (b.size > a.size ? b : a))
-  let size = Math.min(biggest.size * 2, MAX_SIZE)
+  let size = Math.min(biggest.size * 2, maxSize)
   while (packs.some((p) => p.size === size) && size > 1) size -= 1
   return { size, discount: biggest.discount }
 }
@@ -36,8 +35,10 @@ function warnings(cfg: IngredientConfig): Map<number, string> {
   return out
 }
 
-export default function PacksEditor(props: { cfg: IngredientConfig; info?: ReactNode; onChange(packs: PackOption[]): void }): ReactElement {
-  const { cfg } = props
+/** The server's limits set how many sizes, how big and how deep a discount (`limits` from GET /config/defaults). */
+export default function PacksEditor(props: { cfg: IngredientConfig; limits: Limits; info?: ReactNode; onChange(packs: PackOption[]): void }): ReactElement {
+  const { cfg, limits } = props
+  const maxPacks = limits.packs.max
   const hints = warnings(cfg)
   const set = (i: number, patch: Partial<PackOption>) => props.onChange(cfg.packs.map((p, j) => (j === i ? { ...p, ...patch } : p)))
 
@@ -57,8 +58,8 @@ export default function PacksEditor(props: { cfg: IngredientConfig; info?: React
                 <NumberField
                   compact
                   label="Pack size"
-                  min={1}
-                  max={MAX_SIZE}
+                  min={limits.pack_size.min}
+                  max={limits.pack_size.max}
                   value={pack.size}
                   suffix="units"
                   onChange={(v) => set(i, { size: Math.round(v) })}
@@ -66,17 +67,17 @@ export default function PacksEditor(props: { cfg: IngredientConfig; info?: React
                 <NumberField
                   compact
                   label="Discount"
-                  min={0}
-                  max={MAX_DISCOUNT_PCT}
+                  min={toPct(limits.pack_discount.min)}
+                  max={toPct(limits.pack_discount.max)}
                   step={1}
                   suffix="%"
-                  value={Math.round(pack.discount * 1000) / 10}
+                  value={toPct(pack.discount)}
                   onChange={(v) => set(i, { discount: Math.round(v * 10) / 1000 })}
                 />
                 <button
                   type="button"
                   aria-label={`Remove the pack of ${pack.size}`}
-                  disabled={cfg.packs.length <= 1}
+                  disabled={cfg.packs.length <= limits.packs.min}
                   onClick={() => props.onChange(cfg.packs.filter((_, j) => j !== i))}
                   className="flex size-11 items-center justify-center rounded-lg border border-stone-300 bg-white text-ink-muted hover:border-bad hover:text-bad disabled:opacity-40 disabled:hover:border-stone-300 disabled:hover:text-ink-muted"
                 >
@@ -98,12 +99,12 @@ export default function PacksEditor(props: { cfg: IngredientConfig; info?: React
       </ul>
       <button
         type="button"
-        disabled={cfg.packs.length >= MAX_PACKS}
-        onClick={() => props.onChange([...cfg.packs, nextPack(cfg.packs)])}
+        disabled={cfg.packs.length >= maxPacks}
+        onClick={() => props.onChange([...cfg.packs, nextPack(cfg.packs, limits.pack_size.max)])}
         className="mt-2 flex min-h-11 w-full items-center justify-center gap-2 rounded-lg border-2 border-dashed border-stone-300 text-sm font-semibold text-ink-muted hover:border-brand-strong hover:text-ink disabled:opacity-40"
       >
         <Plus aria-hidden className="size-4" />
-        {cfg.packs.length >= MAX_PACKS ? `Up to ${MAX_PACKS} pack sizes` : 'Add pack size'}
+        {cfg.packs.length >= maxPacks ? `Up to ${maxPacks} pack sizes` : 'Add pack size'}
       </button>
     </div>
   )

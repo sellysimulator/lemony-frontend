@@ -15,7 +15,7 @@ import { roundCents } from '../../utils/money'
 import { IngredientIcon, WeatherIcon } from '../shared/icons'
 import { packPrice } from '../../game/configMath'
 import WhatIfChart from './WhatIfChart'
-import { listCostPerCup, projectedCostPerCup, purchaseCost, type Purchases } from '../../game/costing'
+import { purchaseCost, type Purchases } from '../../game/costing'
 
 const PREVIEW_DEBOUNCE_MS = 250
 
@@ -64,22 +64,17 @@ export default function PlanDay(props: { state: GameState }): ReactElement {
   }, [purchases])
   const cost = purchaseCost(cfg, purchases)
   const cashLeft = state.cash - cost
-  const cupsPossible = Math.min(
-    state.inventory.cups.total + units.cups,
-    ...RECIPE_INGREDIENTS.filter((n) => recipe[n] > 0).map((n) =>
-      Math.floor((state.inventory[n].total + units[n]) / recipe[n]),
-    ),
-  )
-  // What the cups you can make today will cost, from the stock and packs actually bought.
-  const costPerCup = projectedCostPerCup(cfg, state.inventory, purchases, recipe, Number.isFinite(cupsPossible) ? cupsPossible : 0)
-  const listCost = listCostPerCup(cfg, recipe)
   const priceRange = cfg.min_max_values.price
   const priceValid = price >= priceRange.min && price <= priceRange.max
+  const packsPerSize = state.limits.packs_per_size
 
+  // A count outside what the server accepts is never stored: the buttons stop at the bounds.
   const changePack = (name: IngredientName, size: number, delta: number) =>
     setPurchases((prev) => {
+      const count = (prev[name][size] ?? 0) + delta
+      if (count < packsPerSize.min || count > packsPerSize.max) return prev
       const next = structuredClone(prev)
-      next[name][size] = Math.max(0, (next[name][size] ?? 0) + delta)
+      next[name][size] = count
       return next
     })
 
@@ -92,6 +87,9 @@ export default function PlanDay(props: { state: GameState }): ReactElement {
   }, [purchases, recipe])
   const preview = useGameStore((s) => s.planPreview)
   const shown = preview.reply && preview.reply.day === state.day && !preview.refused ? preview.reply : null
+  // Cost per cup and the cups you can make come from the server, for the plan being edited.
+  const costPerCup = shown?.cost_per_cup ?? null
+  const margin = costPerCup === null ? null : price - costPerCup
 
   const weather = state.today
   return (
@@ -106,7 +104,7 @@ export default function PlanDay(props: { state: GameState }): ReactElement {
               label="Popularity"
               value={pct(state.popularity)}
               sub={`buy chance ×${(0.5 + state.popularity).toFixed(2)}`}
-              hint="Average share of visitors who bought so far. Every buy chance today is multiplied by 0.5 + popularity."
+              hint="Average of the daily success rates so far (the starting popularity until a day has had visitors). Every buy chance today is multiplied by 0.5 + popularity, up to 100%."
             />
             <Stat label="Cash" value={money(state.cash)} />
           </div>
@@ -147,7 +145,14 @@ export default function PlanDay(props: { state: GameState }): ReactElement {
                             −
                           </button>
                           <span className="w-6 text-center tabular-nums">{count}</span>
-                          <button type="button" aria-label={`Add a pack of ${size} ${name}`} disabled={packCost > cashLeft + 1e-9} onClick={() => changePack(name, size, 1)} className="h-7 w-7 rounded-md border border-border bg-brand-soft disabled:opacity-30">
+                          <button
+                            type="button"
+                            aria-label={`Add a pack of ${size} ${name}`}
+                            title={count >= packsPerSize.max ? `Up to ${packsPerSize.max} packs of one size a day` : undefined}
+                            disabled={packCost > cashLeft + 1e-9 || count >= packsPerSize.max}
+                            onClick={() => changePack(name, size, 1)}
+                            className="h-7 w-7 rounded-md border border-border bg-brand-soft disabled:opacity-30"
+                          >
                             +
                           </button>
                         </div>
@@ -190,7 +195,7 @@ export default function PlanDay(props: { state: GameState }): ReactElement {
               <span className="text-sm font-semibold">Price per cup ($)</span>
               <input
                 type="number"
-                step={0.05}
+                step={state.limits.price_step}
                 min={priceRange.min}
                 max={priceRange.max}
                 value={priceDraft ?? String(price)}
@@ -212,12 +217,22 @@ export default function PlanDay(props: { state: GameState }): ReactElement {
             </label>
             <Stat
               label="Cost per cup"
-              value={money(costPerCup)}
-              sub={Math.abs(listCost - costPerCup) >= 0.005 ? `${money(listCost)} at list price` : undefined}
-              hint="Average cost of the cups you can make today: oldest stock first at the price you paid, then today's packs with their discounts."
+              value={shown ? (costPerCup === null ? '–' : money(costPerCup)) : '…'}
+              sub={shown && costPerCup === null ? 'No stock for a cup' : undefined}
+              hint="Average cost of the cups you can make today: oldest stock first at the price you paid, then today's packs with their discounts, dearest first."
             />
-            <Stat label="Margin per cup" value={`${money(price - costPerCup)} (${costPerCup > 0 ? pct((price - costPerCup) / costPerCup) : '—'})`} tone={price >= costPerCup ? 'good' : 'bad'} />
+            <Stat
+              label="Margin per cup"
+              value={margin === null ? (shown ? '–' : '…') : `${money(margin)} (${price > 0 ? pct(margin / price) : '—'})`}
+              tone={margin === null ? 'neutral' : margin >= 0 ? 'good' : 'bad'}
+              hint="Price minus cost per cup; the percentage is the share of the price you keep."
+            />
           </div>
+          <p className="mt-3 text-xs text-ink-muted">
+            The day report’s <strong>Cash result</strong> is today’s sales minus everything you buy today ({money(cost)} so far), even stock you will use on
+            later days. So a cup can make money while the day’s cash result is negative: for example, a $0.40 margin per cup and a −$6.70 cash result after
+            buying packs for the week.
+          </p>
         </Card>
 
         {shown ? (
@@ -271,7 +286,7 @@ export default function PlanDay(props: { state: GameState }): ReactElement {
 
         <Card>
           <p className="text-sm">
-            With this recipe you can make <strong className="tabular-nums">{Number.isFinite(cupsPossible) ? cupsPossible : 0}</strong> cups.
+            With this recipe you can make <strong className="tabular-nums">{shown ? shown.cups_possible : '…'}</strong> cups.
           </p>
           <button
             type="button"

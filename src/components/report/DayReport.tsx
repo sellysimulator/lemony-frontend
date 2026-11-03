@@ -79,7 +79,12 @@ export default function DayReport(props: { watch: WatchedDay; state: GameState }
         />
         <Stat label="Sold-out misses" value={record.sold_out} tone={record.sold_out ? 'bad' : 'neutral'} hint="Wanted to buy but you ran out" />
         <Stat label="Revenue" value={money(record.revenue)} />
-        <Stat label="Profit" value={money(record.profit)} tone={record.profit >= 0 ? 'good' : 'bad'} hint="Revenue minus today's purchases" />
+        <Stat
+          label="Cash result"
+          value={money(record.profit)}
+          tone={record.profit >= 0 ? 'good' : 'bad'}
+          hint="Revenue minus everything bought today, even stock you will use on later days"
+        />
       </div>
 
       <div className="grid gap-5 lg:grid-cols-3">
@@ -175,8 +180,10 @@ export default function DayReport(props: { watch: WatchedDay; state: GameState }
             <p className="text-sm text-ink-muted">Nobody turned you down!</p>
           )}
           <p className="mt-2 text-xs text-ink-muted">
-            Each refusal names the price when it looked suspicious or sat further over the customer's budget than their least favourite ingredient sat from perfect, and that ingredient otherwise. Price {money(record.price)} · recipe <IngredientIcon name="ice" /> {record.recipe.ice}{' '}
-            <IngredientIcon name="sugar" /> {record.recipe.sugar} <IngredientIcon name="lemons" /> {record.recipe.lemons} · cost/cup {money(record.cost_per_cup)}
+            “{REASON_TEXT.not_popular}” means they would have bought if your popularity were a neutral 50%; it only happens while it is lower. Otherwise each refusal
+            names the price when it looked suspicious or sat further over the customer's budget than their least favourite ingredient sat from perfect, and that
+            ingredient otherwise. Price {money(record.price)} · recipe <IngredientIcon name="ice" /> {record.recipe.ice} <IngredientIcon name="sugar" />{' '}
+            {record.recipe.sugar} <IngredientIcon name="lemons" /> {record.recipe.lemons} · cost/cup {record.cost_per_cup == null ? '–' : money(record.cost_per_cup)}
           </p>
         </Card>
       </div>

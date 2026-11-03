@@ -21,6 +21,7 @@ import {
   WEATHER_TYPES,
   type GameConfig,
   type IngredientConfig,
+  type Limits,
   type PersonPreferences,
   type Tolerance,
   type Tolerances,
@@ -96,6 +97,8 @@ function ConfigPage(): ReactElement {
   // "Play again" hands over the settings of the game just played; otherwise start from the defaults.
   const [handed] = useState(() => (location.state as { config?: GameConfig } | null)?.config ?? null)
   const [defaults, setDefaults] = useState<GameConfig | null>(null)
+  // Every bound comes from the server; this screen hand-copies none.
+  const [limits, setLimits] = useState<Limits | null>(null)
   const [config, setConfig] = useState<GameConfig | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
   // The verdict is tagged with the config it was computed for; any edit makes it stale ("checking").
@@ -114,6 +117,7 @@ function ConfigPage(): ReactElement {
     getConfigDefaults()
       .then((d) => {
         setDefaults(d.config)
+        setLimits(d.limits)
         setConfig(structuredClone(handed ?? d.config))
       })
       .catch((err) => setLoadError(errorMessage(err, 'Could not load the default configuration.')))
@@ -156,7 +160,7 @@ function ConfigPage(): ReactElement {
       </Layout>
     )
   }
-  if (!config || !defaults) {
+  if (!config || !defaults || !limits) {
     return (
       <Layout>
         <LoadingSpinner size="lg" label="Loading defaults…" />
@@ -189,7 +193,7 @@ function ConfigPage(): ReactElement {
 
   return (
     <Layout>
-      <DocsConfigContext.Provider value={config}>
+      <DocsConfigContext.Provider value={{ config, limits }}>
         <div className="mx-auto max-w-3xl">
           <div className="mb-6 flex flex-wrap items-end gap-4">
             <div className="min-w-0 flex-1">
@@ -213,15 +217,16 @@ function ConfigPage(): ReactElement {
               <div className="space-y-3">
                 <NumberField
                   label="Number of days"
-                  min={1}
-                  max={30}
+                  min={limits.num_days.min}
+                  max={limits.num_days.max}
                   value={config.num_days}
                   info={<InfoButton doc="num_days" />}
                   onChange={(v) => update((c) => void (c.num_days = Math.round(v)))}
                 />
                 <NumberField
                   label="Starting cash"
-                  min={0}
+                  min={limits.starting_cash.min}
+                  max={limits.starting_cash.max}
                   step={1}
                   suffix="$"
                   value={config.starting_cash}
@@ -239,6 +244,7 @@ function ConfigPage(): ReactElement {
               <div className="space-y-3">
                 <RangeField
                   label="Opening hours"
+                  bounds={limits.hour}
                   value={config.min_max_values.hour}
                   info={<InfoButton doc="hour" />}
                   onChange={(r) => update((c) => void (c.min_max_values.hour = r))}
@@ -247,6 +253,7 @@ function ConfigPage(): ReactElement {
                   label="Temperature"
                   suffix="°C"
                   step={0.5}
+                  bounds={limits.temperature}
                   value={config.min_max_values.temperature}
                   info={<InfoButton doc="temperature" />}
                   onChange={(r) => update((c) => void (c.min_max_values.temperature = r))}
@@ -254,7 +261,8 @@ function ConfigPage(): ReactElement {
                 <RangeField
                   label="Cup price"
                   suffix="$"
-                  step={0.05}
+                  step={limits.price_step}
+                  bounds={limits.price}
                   value={config.min_max_values.price}
                   info={<InfoButton doc="price" />}
                   onChange={(r) => update((c) => void (c.min_max_values.price = r))}
@@ -272,6 +280,7 @@ function ConfigPage(): ReactElement {
                         <IngredientIcon name={name} /> {name.charAt(0).toUpperCase() + name.slice(1)} per cup
                       </span>
                     }
+                    bounds={limits.per_cup}
                     value={config.min_max_values[name]}
                     info={<InfoButton doc={`range_${name}`} />}
                     onChange={(r) => update((c) => void (c.min_max_values[name] = r))}
@@ -297,8 +306,8 @@ function ConfigPage(): ReactElement {
                         label="Traffic multiplier"
                         suffix="×"
                         step={0.05}
-                        min={0}
-                        max={3}
+                        min={limits.weather_multiplier.min}
+                        max={limits.weather_multiplier.max}
                         value={config.weather_multipliers[w]}
                         info={<InfoButton doc="traffic_multiplier" weather={w} />}
                         onChange={(v) => update((c) => void (c.weather_multipliers[w] = v))}
@@ -307,6 +316,7 @@ function ConfigPage(): ReactElement {
                         label="Temperature range"
                         suffix="°C"
                         step={0.5}
+                        bounds={limits.temperature}
                         value={config.weather_temperature_ranges[w]}
                         info={<InfoButton doc="weather_range" weather={w} />}
                         onChange={(r) => update((c) => void (c.weather_temperature_ranges[w] = r))}
@@ -322,8 +332,8 @@ function ConfigPage(): ReactElement {
                 <NumberField
                   label="Recipe effect on price"
                   step={0.05}
-                  min={0}
-                  max={1}
+                  min={limits.quality_swing.min}
+                  max={limits.quality_swing.max}
                   value={config.quality_swing}
                   info={<InfoButton doc="quality_swing" />}
                   onChange={(v) => update((c) => void (c.quality_swing = v))}
@@ -331,8 +341,8 @@ function ConfigPage(): ReactElement {
                 <NumberField
                   label="Starting popularity"
                   step={0.05}
-                  min={0}
-                  max={1}
+                  min={limits.starting_popularity.min}
+                  max={limits.starting_popularity.max}
                   value={config.starting_popularity}
                   info={<InfoButton doc="starting_popularity" />}
                   onChange={(v) => update((c) => void (c.starting_popularity = v))}
@@ -357,7 +367,8 @@ function ConfigPage(): ReactElement {
                             compact
                             label="Base visitors / hour"
                             step={0.5}
-                            min={0}
+                            min={limits.spawn_per_hour.min}
+                            max={limits.spawn_per_hour.max}
                             value={p.spawn_per_hour}
                             info={<InfoButton doc="spawn_per_hour" person={kind} />}
                             onChange={(v) => setPerson(kind, 'spawn_per_hour', v)}
@@ -365,8 +376,8 @@ function ConfigPage(): ReactElement {
                           <NumberField
                             compact
                             label="Favourite hour"
-                            min={0}
-                            max={23}
+                            min={limits.hour.min}
+                            max={limits.hour.max}
                             value={p.preferred_hour}
                             info={<InfoButton doc="preferred_hour" person={kind} />}
                             onChange={(v) => setPerson(kind, 'preferred_hour', Math.round(v))}
@@ -376,6 +387,8 @@ function ConfigPage(): ReactElement {
                             label="Favourite temperature"
                             suffix="°C"
                             step={0.5}
+                            min={limits.temperature.min}
+                            max={limits.temperature.max}
                             value={p.preferred_degrees}
                             info={<InfoButton doc="preferred_degrees" person={kind} />}
                             onChange={(v) => setPerson(kind, 'preferred_degrees', v)}
@@ -393,7 +406,8 @@ function ConfigPage(): ReactElement {
                             compact
                             label="Expects to pay"
                             step={0.05}
-                            min={0}
+                            min={limits.average_expense.min}
+                            max={limits.average_expense.max}
                             suffix="$"
                             value={p.average_expense}
                             info={<InfoButton doc="average_expense" person={kind} />}
@@ -408,7 +422,8 @@ function ConfigPage(): ReactElement {
                                   <IngredientIcon name={n} /> Favourite {n}
                                 </span>
                               }
-                              min={0}
+                              min={limits.per_cup.min}
+                              max={limits.per_cup.max}
                               value={p[`preferred_${n}`]}
                               info={<InfoButton doc={`preferred_${n}`} person={kind} />}
                               onChange={(v) => setPerson(kind, `preferred_${n}`, Math.round(v))}
@@ -428,8 +443,8 @@ function ConfigPage(): ReactElement {
                                     </span>
                                   }
                                   step={0.5}
-                                  min={0}
-                                  max={20}
+                                  min={limits.tolerance.min}
+                                  max={limits.tolerance.max}
                                   value={p.tolerances[n][side]}
                                   info={<InfoButton doc={`tolerance_${n}`} person={kind} />}
                                   onChange={(v) => setTolerance(kind, n, side, v)}
@@ -443,8 +458,8 @@ function ConfigPage(): ReactElement {
                                 label={`Price ${side}`}
                                 suffix="× budget"
                                 step={0.05}
-                                min={side === 'below' ? 0 : 0.05}
-                                max={side === 'below' ? 1 : 5}
+                                min={(side === 'below' ? limits.price_tolerance_below : limits.price_tolerance_above).min}
+                                max={(side === 'below' ? limits.price_tolerance_below : limits.price_tolerance_above).max}
                                 value={p.tolerances.price[side]}
                                 info={<InfoButton doc="tolerance_price" person={kind} />}
                                 onChange={(v) => setTolerance(kind, 'price', side, v)}
@@ -481,13 +496,14 @@ function ConfigPage(): ReactElement {
                             compact
                             label="Cost per unit"
                             step={0.01}
-                            min={0}
+                            min={limits.unit_cost.min}
+                            max={limits.unit_cost.max}
                             suffix="$"
                             value={cfg.unit_cost}
                             info={<InfoButton doc="unit_cost" ingredient={name} />}
                             onChange={(v) => setIngredient(name, 'unit_cost', v)}
                           />
-                          <PacksEditor cfg={cfg} info={<InfoButton doc="packs" ingredient={name} />} onChange={(packs) => setIngredient(name, 'packs', packs)} />
+                          <PacksEditor cfg={cfg} limits={limits} info={<InfoButton doc="packs" ingredient={name} />} onChange={(packs) => setIngredient(name, 'packs', packs)} />
                         </FieldGroup>
                         <FieldGroup title="Spoilage">
                           <CheckboxField
@@ -501,7 +517,8 @@ function ConfigPage(): ReactElement {
                               <NumberField
                                 compact
                                 label="Fresh days"
-                                min={0}
+                                min={limits.fresh_days.min}
+                                max={limits.fresh_days.max}
                                 value={cfg.fresh_days}
                                 info={<InfoButton doc="fresh_days" ingredient={name} />}
                                 onChange={(v) => setIngredient(name, 'fresh_days', Math.round(v))}
@@ -509,7 +526,8 @@ function ConfigPage(): ReactElement {
                               <NumberField
                                 compact
                                 label="Max days"
-                                min={1}
+                                min={limits.max_days.min}
+                                max={limits.max_days.max}
                                 value={cfg.max_days}
                                 info={<InfoButton doc="max_days" ingredient={name} />}
                                 onChange={(v) => setIngredient(name, 'max_days', Math.round(v))}

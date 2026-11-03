@@ -28,6 +28,22 @@ describe('round events on the socket', () => {
     expect(emit).not.toHaveBeenCalled()
   })
 
+  it('a failed save is remembered until a retry or a successful save', async () => {
+    const { retryPersist } = await import('../api/socketHandlers')
+    listeners.get('game_state')!({ seq: 2, full: true, state: { ...full, phase: 'finished' } })
+    listeners.get('game_persist_failed')!({ seq: 3 })
+    expect(useGameStore.getState().persistFailed).toBe(true)
+    retryPersist()
+    expect(emit).toHaveBeenCalledWith('retry_persist', { game_id: 'g1' })
+    expect(useGameStore.getState().persistFailed).toBe(false) // saving again
+    listeners.get('game_persist_failed')!({ seq: 4 })
+    expect(useGameStore.getState().persistFailed).toBe(true)
+    listeners.get('game_persisted')!({ seq: 5, public_id: 'g1' })
+    expect(useGameStore.getState()).toMatchObject({ persistFailed: false, publicId: 'g1' })
+    listeners.get('game_persist_failed')!({ seq: 3 }) // stale: dropped by seq
+    expect(useGameStore.getState().persistFailed).toBe(false)
+  })
+
   it('ask for the full state when no history of that game is held', () => {
     listeners.get('day_result')!({ seq: 3, day: 1, record, events: [], duplicate: false, state: daily({}) })
     listeners.get('game_state')!({ seq: 4, full: false, state: daily({ day: 2, phase: 'planning' }) })

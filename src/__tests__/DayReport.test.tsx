@@ -77,9 +77,23 @@ describe('DayReport: why people said no', () => {
     expect(within(rows[2]).getByText('3')).toBeInTheDocument()
   })
 
-  it('keeps the footnote with the price and recipe', () => {
+  it('keeps the footnote with the price and recipe, and explains the popularity reason', () => {
     renderReport(record())
-    expect(screen.getByText(/Each refusal names the price/)).toBeInTheDocument()
+    const note = screen.getByText(/each refusal names the price/)
+    expect(note.textContent).toContain('“Not popular enough” means they would have bought if your popularity were a neutral 50%')
+    expect(note.textContent).toContain('cost/cup $0.20')
+  })
+
+  it('names the popularity reason in its own bar', () => {
+    renderReport(record({ refusal_reasons: { not_popular: 20, too_pricey: 5 }, refused: 25 }))
+    const rows = bars('Why people said no').map((li) => li.textContent ?? '')
+    expect(rows[0]).toContain('Not popular enough')
+    expect(rows[0]).toContain('20')
+  })
+
+  it('shows a dash for the cost per cup of a day with nothing to make a cup from', () => {
+    renderReport(record({ cost_per_cup: null, buyers: 0 }))
+    expect(screen.getByText(/each refusal names the price/).textContent).toContain('cost/cup –')
   })
 
   it('keeps "Nobody turned you down!" on a day with no refusals', () => {
@@ -140,5 +154,16 @@ describe('DayReport: replay button', () => {
   it('is shown when the day has events', () => {
     renderReport(record(), [EVENT])
     expect(screen.getByRole('button', { name: 'Replay day' })).toBeInTheDocument()
+  })
+})
+
+describe('DayReport: cash result', () => {
+  it('labels the day profit "Cash result" and says it subtracts every purchase of the day', () => {
+    renderReport(record({ profit: -6.7 }))
+    expect(screen.queryByText('Profit')).toBeNull()
+    const label = screen.getByText('Cash result')
+    const tile = label.parentElement!
+    expect(tile.textContent).toContain('−$6.70')
+    expect(tile.getAttribute('title')).toBe('Revenue minus everything bought today, even stock you will use on later days')
   })
 })

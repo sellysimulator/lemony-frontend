@@ -5,7 +5,6 @@ import {
   breakEvenUnits,
   buyDecision,
   buyProbability,
-  cupsAffordable,
   hazard,
   kernel,
   largestDiff,
@@ -128,12 +127,6 @@ describe('configMath', () => {
 })
 
 describe('whole counts from money (float noise)', () => {
-  it('counts the cups starting cash buys even when the cost per cup carries float noise', () => {
-    // 0.1 + 0.2 is 0.30000000000000004, so $3 ÷ that is 9.999… and a bare floor says 9.
-    expect(cupsAffordable(3, 0.1 + 0.2)).toBe(10)
-    expect(cupsAffordable(3.1, 0.3)).toBe(10)
-  })
-
   it('does not round a break-even count up past a whole number', () => {
     const unit = { unit_cost: 0.03, packs: [], fresh_days: 3, max_days: 7, never_perishes: false }
     // 300 units at 5% off cost $8.55 and a unit from the pack of 100 costs $0.03: exactly 285 units,

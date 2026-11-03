@@ -13,7 +13,7 @@ import type { RouteDescriptor } from '../routes/registry'
 
 /** The whole game loop on one route; the store's `view` picks the screen. */
 function PlayPage(): ReactElement {
-  const { resume, state, view, watch, summary, publicId } = useGameStore()
+  const { resume, state, view, watch, summary, publicId, persistFailed } = useGameStore()
   const { mode } = useAuth()
 
   // Warm the 3D board (chunk + models) while the player plans, so switching to
@@ -45,7 +45,7 @@ function PlayPage(): ReactElement {
   } else if (view === 'report' && watch) {
     body = <DayReport watch={watch} state={state} />
   } else if (state.phase === 'finished') {
-    body = <GameOver summary={summary ?? state.summary} publicId={publicId} signedIn={mode === 'authenticated'} />
+    body = <GameOver summary={summary ?? state.summary} publicId={publicId} saveFailed={persistFailed} signedIn={mode === 'authenticated'} />
   } else if (state.phase === 'played') {
     body = <LoadingSpinner size="lg" />
   } else {

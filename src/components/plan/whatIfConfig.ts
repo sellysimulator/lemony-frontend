@@ -5,7 +5,6 @@ import type { PlanPreviewOk } from '../../types/game'
 import { money, pct } from '../../utils/format'
 
 export const YOUR_PRICE = PERSON_SERIES.Teenager
-export const BEST_PRICE = PERSON_SERIES.Adult
 
 /** Index of the server's grid price closest to `price` (the lower one on a tie). Picks a point; computes no demand. */
 export function nearestIndex(prices: number[], price: number): number {
@@ -22,7 +21,6 @@ function single(length: number, index: number, value: number): (number | null)[]
 export function whatIfData(preview: PlanPreviewOk, price: number): ChartData<'line', (number | null)[], string> {
   const n = preview.prices.length
   const mine = nearestIndex(preview.prices, price)
-  const best = nearestIndex(preview.prices, preview.best_price)
   return {
     labels: preview.prices.map((p) => money(p)),
     datasets: [
@@ -39,18 +37,6 @@ export function whatIfData(preview: PlanPreviewOk, price: number): ChartData<'li
         pointBorderColor: '#ffffff',
         pointBorderWidth: 2,
       },
-      {
-        label: 'Best price',
-        data: single(n, best, preview.expected_margin[best]),
-        showLine: false,
-        borderColor: BEST_PRICE,
-        backgroundColor: BEST_PRICE,
-        pointStyle: 'circle',
-        pointRadius: 6,
-        pointHoverRadius: 8,
-        pointBorderColor: '#ffffff',
-        pointBorderWidth: 2,
-      },
     ],
   }
 }
@@ -61,7 +47,7 @@ export function whatIfOptions(): ChartOptions<'line'> {
     ...base,
     plugins: {
       ...base.plugins,
-      // The markers are annotations of the curve, not series of their own.
+      // The marker is an annotation of the curve, not a series of its own.
       tooltip: { ...base.plugins?.tooltip, filter: (item) => item.datasetIndex === 0 },
     },
   }
@@ -70,7 +56,6 @@ export function whatIfOptions(): ChartOptions<'line'> {
 export const whatIfLegend: LegendItem[] = [
   { key: 'curve', label: 'Expected margin', swatch: { kind: 'line', color: SINGLE } },
   { key: 'mine', label: 'Your price', swatch: { kind: 'line', color: YOUR_PRICE, pointStyle: 'rectRot' } },
-  { key: 'best', label: 'Best price', swatch: { kind: 'line', color: BEST_PRICE, pointStyle: 'circle' } },
 ]
 
 export function whatIfTable(preview: PlanPreviewOk): { head: string[]; rows: (string | number)[][] } {

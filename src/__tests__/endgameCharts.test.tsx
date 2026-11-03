@@ -190,7 +190,7 @@ describe('L1 price vs success rate bubble chart', () => {
     s.handleGameState(2, { game_id: 'g1', day: 4, phase: 'finished', days: DAYS, last_day_events: [], summary: SUMMARY, public_id: null } as unknown as GameState)
     render(
       <MemoryRouter>
-        <GameOver summary={SUMMARY} publicId={null} signedIn={false} />
+        <GameOver summary={SUMMARY} publicId={null} saveFailed={false} signedIn={false} />
       </MemoryRouter>,
     )
     const c = last((x) => x.kind === 'bubble')

@@ -23,7 +23,7 @@ const ok = (request_id: string, margin = 1) => ({
   expected_cups: [10, 8],
   expected_margin: [margin, margin + 1],
   cups_possible: 50,
-  best_price: 0.3,
+  cost_per_cup: 0.21,
 })
 
 /** The request_ids emitted so far, in order. */

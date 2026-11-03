@@ -46,6 +46,7 @@ export const INGREDIENT_ICON: Record<IngredientName, LucideIcon> = { ice: Box, s
 export const REASON_TEXT: Record<string, string> = {
   too_cheap: 'Too cheap — seems sketchy',
   too_pricey: 'Too pricey',
+  not_popular: 'Not popular enough',
   too_much_ice: 'Too much ice',
   needs_more_ice: 'Needs more ice',
   too_sweet: 'Too sweet',
