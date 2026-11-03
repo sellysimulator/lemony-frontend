@@ -18,7 +18,7 @@ function HomePage(): ReactElement {
         <section className="rounded-3xl border border-border bg-brand-soft p-8 shadow-sm">
           <h1 className="text-3xl font-extrabold">Open a new stand</h1>
           <p className="mt-2 text-ink-muted">
-            Tune the world — customers, weather, ingredient costs and shelf life — then play 1 to 30 days.
+            Tune the world — customers, weather, ingredient costs and shelf life — then choose how many days to play.
           </p>
           <Link
             to="/new"

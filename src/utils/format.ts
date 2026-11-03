@@ -1,11 +1,13 @@
 import { Box, Candy, Citrus, Cloud, CloudRain, CupSoda, Snowflake, Sun, User, type LucideIcon } from 'lucide-react'
-import { roundCents } from './money'
 import type { IngredientName, PersonType, Weather } from '../types/game'
 
-/** Rounded with the shared money rule first, so a displayed amount never disagrees with the server's. */
+/**
+ * A dollar amount with two decimals. Display only: the server rounds every money figure it
+ * sends, so this prints it and decides nothing (a typed config value just shows to the cent).
+ */
 export const money = (n: number): string => {
-  const cents = roundCents(n)
-  return `${cents < 0 ? '−' : ''}$${Math.abs(cents).toFixed(2)}`
+  const digits = Math.abs(n).toFixed(2)
+  return `${n < 0 && digits !== '0.00' ? '−' : ''}$${digits}`
 }
 
 export const pct = (n: number): string => `${Math.round(n * 100)}%`
@@ -46,6 +48,7 @@ export const INGREDIENT_ICON: Record<IngredientName, LucideIcon> = { ice: Box, s
 export const REASON_TEXT: Record<string, string> = {
   too_cheap: 'Too cheap — seems sketchy',
   too_pricey: 'Too pricey',
+  not_popular: 'Not popular enough',
   too_much_ice: 'Too much ice',
   needs_more_ice: 'Needs more ice',
   too_sweet: 'Too sweet',

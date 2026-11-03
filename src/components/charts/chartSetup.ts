@@ -22,9 +22,23 @@ import {
 } from 'chart.js'
 import type { IngredientName, PersonType, Weather } from '../../types/game'
 
-ChartJS.register(CategoryScale, LinearScale, BarElement, LineElement, PointElement, Tooltip, Legend, Filler)
-ChartJS.defaults.font.family = 'Nunito, ui-sans-serif, system-ui, sans-serif'
-ChartJS.defaults.color = '#44403c'
+const defaultAnimation = ChartJS.defaults.animation
+
+function prefersReducedMotion(): boolean {
+  return typeof window !== 'undefined' && typeof window.matchMedia === 'function' && window.matchMedia('(prefers-reduced-motion: reduce)').matches
+}
+
+/** Registers the chart parts and global defaults. Safe to call again; runs once at module load. */
+export function registerCharts(): void {
+  ChartJS.register(CategoryScale, LinearScale, BarElement, LineElement, PointElement, Tooltip, Legend, Filler)
+  ChartJS.defaults.font.family = 'Nunito, ui-sans-serif, system-ui, sans-serif'
+  ChartJS.defaults.color = '#44403c'
+  // Legends are DOM (components/charts/Legend.tsx).
+  ChartJS.defaults.plugins.legend.display = false
+  ChartJS.defaults.animation = prefersReducedMotion() ? false : defaultAnimation
+}
+
+registerCharts()
 
 export const SURFACE = '#ffffff'
 export const GRID = 'rgba(0,0,0,0.06)'
@@ -57,6 +71,16 @@ export const OUTCOME_SERIES = {
 } as const
 
 export const SINGLE = '#2a78d6'
+/** Money lost: cash going down, a day's loss. */
+export const LOSS = '#e34948'
+/** One sequential hue (light to dark orange) for a quantity with an order, e.g. temperature. */
+export const SEQUENTIAL = { from: [252, 217, 182], to: [158, 56, 8] } as const
+/** `t` in 0–1 along the sequential hue, as a CSS colour. */
+export function sequentialColor(t: number): string {
+  const k = Math.min(1, Math.max(0, Number.isFinite(t) ? t : 0))
+  const [r, g, b] = SEQUENTIAL.from.map((a, i) => Math.round(a + (SEQUENTIAL.to[i] - a) * k))
+  return `rgb(${r}, ${g}, ${b})`
+}
 /** Totals shown beside a categorical series (e.g. all visitors vs buyers). */
 export const NEUTRAL = '#b8b6ae'
 
@@ -86,7 +110,7 @@ export function lineStyle(color: string) {
   }
 }
 
-export function baseOptions<T extends 'bar' | 'line'>(opts: { stacked?: boolean; yLabel?: string; money?: boolean; percent?: boolean }): ChartOptions<T> {
+export function baseOptions<T extends 'bar' | 'line'>(opts: { stacked?: boolean; xLabel?: string; yLabel?: string; money?: boolean; percent?: boolean }): ChartOptions<T> {
   const fmt = (v: number | string) => {
     const n = Number(v)
     if (opts.money) return `$${n.toFixed(n % 1 ? 2 : 0)}`
@@ -96,10 +120,10 @@ export function baseOptions<T extends 'bar' | 'line'>(opts: { stacked?: boolean;
   return {
     responsive: true,
     maintainAspectRatio: false,
-    animation: { duration: 250 },
+    animation: prefersReducedMotion() ? false : { duration: 250 },
     interaction: { mode: 'index', intersect: false },
     plugins: {
-      legend: { position: 'top', align: 'start', labels: { usePointStyle: true, boxWidth: 8, boxHeight: 8 } },
+      legend: { display: false, position: 'top', align: 'start', labels: { usePointStyle: true, boxWidth: 8, boxHeight: 8 } },
       tooltip: {
         callbacks: {
           label: (ctx: TooltipItem<'bar' | 'line'>) => `${ctx.dataset.label}: ${fmt(ctx.parsed.y ?? 0)}`,
@@ -107,7 +131,7 @@ export function baseOptions<T extends 'bar' | 'line'>(opts: { stacked?: boolean;
       },
     },
     scales: {
-      x: { stacked: opts.stacked, grid: { display: false } },
+      x: { stacked: opts.stacked, grid: { display: false }, title: opts.xLabel ? { display: true, text: opts.xLabel } : undefined },
       y: {
         stacked: opts.stacked,
         beginAtZero: true,

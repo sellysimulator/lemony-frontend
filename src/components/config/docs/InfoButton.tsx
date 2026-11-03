@@ -4,11 +4,25 @@ import Modal from '../../shared/Modal'
 import { DocsConfigContext } from './docsContext'
 import { DOCS, type DocCtx, type DocKey } from './entries'
 
-export default function InfoButton(props: { doc: DocKey } & Omit<DocCtx, 'config'>): ReactElement | null {
-  const config = useContext(DocsConfigContext)
+type Extra = Pick<DocCtx, 'person' | 'ingredient' | 'weather'>
+
+export default function InfoButton(props: { doc: DocKey } & Extra): ReactElement | null {
+  const docs = useContext(DocsConfigContext)
   const [open, setOpen] = useState(false)
-  if (!config) return null
-  const ctx: DocCtx = { config, person: props.person, ingredient: props.ingredient, weather: props.weather }
+  if (!docs) return null
+  const { preview } = docs
+  const ctx: DocCtx = {
+    config: docs.config,
+    limits: docs.limits,
+    help: preview?.help ?? null,
+    ingredients: preview?.ingredients ?? null,
+    invalid: preview && !preview.valid ? preview.message : null,
+    customersPerDay: preview?.customers_per_day ?? null,
+    stale: docs.stale,
+    person: props.person,
+    ingredient: props.ingredient,
+    weather: props.weather,
+  }
   const doc = DOCS[props.doc]
   const title = doc.title(ctx)
   return (

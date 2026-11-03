@@ -1,20 +1,25 @@
 import http from './http'
-import type { GameConfig, GameSummary } from '../types/game'
+import type { ConfigPreview, GameConfig, GameSummary, Limits } from '../types/game'
 
 export interface ConfigDefaults {
   config: GameConfig
   weather_types: string[]
   person_types: string[]
   ingredient_names: string[]
-  max_num_days: number
+  /** Every bound the server enforces; the config screen and the help read them from here. */
+  limits: Limits
 }
 
 export async function getConfigDefaults(): Promise<ConfigDefaults> {
   return (await http.get<ConfigDefaults>('/config/defaults')).data
 }
 
-export async function validateConfig(config: GameConfig): Promise<{ valid: boolean; message: string | null }> {
-  return (await http.post('/config/validate', config)).data
+/**
+ * The server's verdict on a draft config and every figure the config screen and its help
+ * show for it (pack prices, spoilage, odds, charts, worked examples). The client works out none.
+ */
+export async function getConfigPreview(config: GameConfig): Promise<ConfigPreview> {
+  return (await http.post<ConfigPreview>('/config/preview', config)).data
 }
 
 export interface UserStats {
@@ -22,6 +27,8 @@ export interface UserStats {
   days_played: number
   total_cups_sold: number
   total_visitors: number
+  /** All cups sold ÷ all visitors (server); null with no visitors. */
+  conversion: number | null
   total_profit: number
   best_profit: number | null
   avg_profit: number | null
@@ -39,6 +46,8 @@ export interface GameListItem {
   total_buyers: number
   total_sold_out: number
   final_popularity?: number | null
+  /** Cups sold ÷ visitors (server); null with no visitors. */
+  conversion: number | null
   started_at: string
   finished_at: string
 }

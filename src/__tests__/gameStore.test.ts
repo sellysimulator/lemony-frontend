@@ -4,7 +4,7 @@ import type { CustomerEvent, DailyGameState, DayRecord, GameState, GameSummary }
 
 const record = { day: 1 } as DayRecord
 const state = (over: Partial<GameState>): GameState =>
-  ({ game_id: 'g1', day: 1, phase: 'planning', days: [], last_day_events: [], summary: null, public_id: null, ...over }) as GameState
+  ({ game_id: 'g1', day: 1, phase: 'planning', days: [], summary: null, public_id: null, ...over }) as GameState
 /** What round events carry: the state without its history. */
 const daily = (over: Partial<DailyGameState>): DailyGameState =>
   ({ game_id: 'g1', day: 1, phase: 'planning', public_id: null, ...over }) as DailyGameState
@@ -21,10 +21,45 @@ describe('gameStore', () => {
     expect(useGameStore.getState().state?.day).toBe(2)
   })
 
-  it('a refresh mid-day replays that day; a finished game opens results', () => {
-    expect(viewForState(state({ phase: 'played', days: [record], last_day_events: [] })).view).toBe('day')
+  it("a refresh mid-day opens that day's report (no customers are kept); a finished game opens results", () => {
+    expect(viewForState(state({ phase: 'played', days: [record] }))).toEqual({ view: 'report', watch: { day: 1, record, events: [] } })
+    // An older server still sends the list on a resync: it is not replayed either.
+    const older = { ...state({ phase: 'played', days: [record] }), last_day_events: events } as GameState
+    expect(viewForState(older)).toEqual({ view: 'report', watch: { day: 1, record, events: [] } })
     expect(viewForState(state({ phase: 'finished', days: [record] })).view).toBe('over')
     expect(viewForState(state({ phase: 'planning' })).view).toBe('plan')
+  })
+
+  it('a live day result replays every customer, as before', () => {
+    const s = useGameStore.getState()
+    s.handleGameCreated(1, 'g1')
+    s.handleGameState(2, state({}))
+    s.handleDayResult({ seq: 3, day: 1, record, events, duplicate: false, state: daily({ phase: 'played' }) })
+    expect(useGameStore.getState()).toMatchObject({ view: 'day', watch: { day: 1, record, events } })
+  })
+
+  it('a day result with no customer list goes straight to that day\'s report', () => {
+    const s = useGameStore.getState()
+    s.handleGameCreated(1, 'g1')
+    s.handleGameState(2, state({}))
+    s.handleDayResult({ seq: 3, day: 1, record, events: null, duplicate: true, state: daily({ phase: 'played' }) })
+    expect(useGameStore.getState()).toMatchObject({ view: 'report', watch: { day: 1, record, events: [] }, submitting: false })
+    expect(useGameStore.getState().state?.days).toEqual([record])
+  })
+
+  it('a day sent again while that day plays leaves the playback running', () => {
+    const s = useGameStore.getState()
+    s.handleGameCreated(1, 'g1')
+    s.handleGameState(2, state({}))
+    s.handleDayResult({ seq: 3, day: 1, record, events, duplicate: false, state: daily({ phase: 'played' }) })
+    s.handleDayResult({ seq: 4, day: 1, record, events: null, duplicate: true, state: daily({ phase: 'played' }) })
+    expect(useGameStore.getState()).toMatchObject({ view: 'day', watch: { day: 1, record, events }, lastSeq: 4 })
+  })
+
+  it('a resume while a day is played but not acknowledged opens its report, with no replay', () => {
+    const s = useGameStore.getState()
+    s.handleGameState(5, state({ phase: 'played', days: [record] }))
+    expect(useGameStore.getState()).toMatchObject({ view: 'report', watch: { day: 1, record, events: [] } })
   })
 
   it('day result opens playback; acknowledging returns to planning', () => {
@@ -46,14 +81,13 @@ describe('gameStore', () => {
     s.handleGameState(2, state({}))
     s.handleDayResult({ seq: 3, day: 1, record, events, duplicate: false, state: daily({ phase: 'played' }) })
     expect(useGameStore.getState().state?.days).toEqual([record])
-    expect(useGameStore.getState().state?.last_day_events).toEqual(events)
     // A replayed result (duplicate submit) never duplicates the day.
-    s.handleDayResult({ seq: 4, day: 1, record, events, duplicate: true, state: daily({ phase: 'played' }) })
+    s.handleDayResult({ seq: 4, day: 1, record, events: null, duplicate: true, state: daily({ phase: 'played' }) })
     expect(useGameStore.getState().state?.days).toEqual([record])
 
     const day2 = { day: 2 } as DayRecord
     s.handleDailyState(5, daily({ day: 2, phase: 'planning' }))
-    expect(useGameStore.getState().state).toMatchObject({ day: 2, phase: 'planning', days: [record], last_day_events: [] })
+    expect(useGameStore.getState().state).toMatchObject({ day: 2, phase: 'planning', days: [record] })
     s.handleDayResult({ seq: 6, day: 2, record: day2, events, duplicate: false, state: daily({ day: 2, phase: 'played' }) })
     expect(useGameStore.getState().state?.days).toEqual([record, day2])
   })

@@ -64,7 +64,7 @@ export default function DayView(props: { watch: WatchedDay; config: GameConfig }
         </div>
       </div>
 
-      <Hud events={watch.events} price={watch.record.price} openMin={bounds.open} closeMin={bounds.close} />
+      <Hud events={watch.events} openMin={bounds.open} closeMin={bounds.close} />
 
       {/* Width capped by the viewport height (the board is 2:1) so board, clock and controls fit on one screen. */}
       <div className="relative mx-auto max-w-[calc((100svh-15rem)*2)] min-w-[min(100%,36rem)]">

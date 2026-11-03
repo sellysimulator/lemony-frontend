@@ -14,7 +14,10 @@ import type {
   GameCreatedEvent,
   GameFinishedEvent,
   GamePersistedEvent,
+  GamePersistFailedEvent,
   GameStateEvent,
+  PlanPreviewEvent,
+  PlanPreviewRequest,
   ServerErrorEvent,
 } from '../types/game'
 
@@ -77,6 +80,10 @@ socket.on('game_persisted', (data: GamePersistedEvent) => {
   useGameStore.getState().handleGamePersisted(data.seq, data.public_id)
 })
 
+socket.on('game_persist_failed', (data: GamePersistFailedEvent) => {
+  useGameStore.getState().handleGamePersistFailed(data.seq)
+})
+
 socket.on('no_active_game', () => {
   clearStoredGame()
   useGameStore.getState().handleNoActiveGame()
@@ -85,6 +92,12 @@ socket.on('no_active_game', () => {
 socket.on('game_abandoned', () => {
   clearStoredGame()
   useGameStore.getState().handleGameAbandoned()
+})
+
+// A request-scoped reply: no seq, so it bypasses the gate and never touches lastSeq. A refusal
+// rides inside it and is never an `error` event, so nothing is toasted.
+socket.on('plan_preview', (data: PlanPreviewEvent) => {
+  useGameStore.getState().handlePlanPreview(data)
 })
 
 socket.on('error', (data: ServerErrorEvent) => {
@@ -108,9 +121,28 @@ export function submitDay(plan: DayPlanPayload): void {
   socket.emit('submit_day', { game_id: gameId, day: state.day, ...plan })
 }
 
+let previewCount = 0
+
+/** Asks the server for the what-if curve and every figure of this plan, at this price. Only the latest request's reply is kept. */
+export function previewPlan(plan: PlanPreviewRequest): void {
+  const { gameId, state } = useGameStore.getState()
+  if (!gameId || !state) return
+  const requestId = `p${Date.now().toString(36)}-${++previewCount}`
+  useGameStore.getState().beginPlanPreview(requestId)
+  socket.emit('preview_plan', { request_id: requestId, game_id: gameId, day: state.day, purchases: plan.purchases, recipe: plan.recipe, price: plan.price })
+}
+
 export function acknowledgeDay(day: number): void {
   const { gameId } = useGameStore.getState()
   if (gameId) socket.emit('ack_day', { game_id: gameId, day })
+}
+
+/** Asks the server to save the finished game again after `game_persist_failed`. */
+export function retryPersist(): void {
+  const { gameId } = useGameStore.getState()
+  if (!gameId) return
+  useGameStore.getState().beginRetryPersist()
+  socket.emit('retry_persist', { game_id: gameId })
 }
 
 export function abandonGame(): void {

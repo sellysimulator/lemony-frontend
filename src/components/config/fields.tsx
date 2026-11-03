@@ -69,6 +69,8 @@ export function RangeField(props: {
   value: { min: number; max: number }
   onChange(value: { min: number; max: number }): void
   info?: ReactNode
+  /** The bounds the server accepts for either end (from its limits). */
+  bounds?: { min: number; max: number }
   step?: number
   suffix?: string
 }): ReactElement {
@@ -83,6 +85,8 @@ export function RangeField(props: {
           compact
           label="Min"
           value={props.value.min}
+          min={props.bounds?.min}
+          max={props.bounds?.max}
           step={props.step}
           suffix={props.suffix}
           onChange={(min) => props.onChange({ ...props.value, min })}
@@ -91,6 +95,8 @@ export function RangeField(props: {
           compact
           label="Max"
           value={props.value.max}
+          min={props.bounds?.min}
+          max={props.bounds?.max}
           step={props.step}
           suffix={props.suffix}
           onChange={(max) => props.onChange({ ...props.value, max })}

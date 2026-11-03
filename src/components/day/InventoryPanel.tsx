@@ -1,17 +1,15 @@
 import type { ReactElement } from 'react'
 import { usePlayback } from '../../store/playback'
-import { cupsLeft, openingStock, revealedCount, stockAfter, tally } from '../../game/timeline'
+import { revealedCount, stockNow } from '../../game/timeline'
 import { INGREDIENTS, type CustomerEvent, type DayRecord } from '../../types/game'
 import { IngredientIcon } from '../shared/icons'
 
-/** Stock on hand as the day plays: opening stock less what each cup sold used. */
+/** Stock on hand as the day plays, as the server's events report it. */
 export default function InventoryPanel(props: { events: CustomerEvent[]; record: DayRecord }): ReactElement | null {
   const clock = usePlayback((s) => s.clock)
-  const opening = openingStock(props.record)
-  if (!opening) return null
-  const sold = tally(props.events, revealedCount(props.events, clock)).buyers
-  const stock = stockAfter(opening, props.record.recipe, sold)
-  const left = cupsLeft(stock, props.record.recipe)
+  const now = stockNow(props.record, props.events, revealedCount(props.events, clock))
+  if (!now) return null
+  const { opening, stock, cupsLeft: left } = now
 
   return (
     <div className="rounded-2xl border border-border bg-surface-raised p-3 shadow-sm">
