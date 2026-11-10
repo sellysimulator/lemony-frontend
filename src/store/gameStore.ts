@@ -82,6 +82,8 @@ interface GameStoreActions {
   /** Makes `requestId` the only request whose reply is kept; the previous reply stays until it answers. */
   beginPlanPreview(requestId: string): void
   handlePlanPreview(event: PlanPreviewEvent): void
+  /** `requestId` got no reply (the server drops requests past its rate limit): stop waiting, keep the last reply. */
+  endPlanPreviewWait(requestId: string): void
   setView(view: PlayView): void
   /** Opens the report of a day already held; no events are kept for past days, so there is no replay. A day not held changes nothing. */
   openDayReport(day: number): void
@@ -224,6 +226,10 @@ export const useGameStore = create<GameStoreState & GameStoreActions>((set, get)
       if ('error' in event && event.error)
         set({ planPreview: { requestId: event.request_id, reply: null, refused: true, message: event.error.message, waiting: false } })
       else set({ planPreview: { requestId: event.request_id, reply: event as PlanPreviewOk, refused: false, message: null, waiting: false } })
+    },
+
+    endPlanPreviewWait(requestId) {
+      if (get().planPreview.requestId === requestId) set((s) => ({ planPreview: { ...s.planPreview, waiting: false } }))
     },
 
     setView(view) {

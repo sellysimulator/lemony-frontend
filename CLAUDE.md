@@ -64,6 +64,16 @@ other template pieces needs the user's explicit OK.
   fresh `{idToken, guestId}` on every connect) and `src/api/socketHandlers.ts` (all
   listeners and emits). `AuthContext` connects only after Firebase restores the session.
   On every `connect` the client emits `resume_game` from localStorage.
+- **Backend abuse limits** (`../Lemony_Backend/app/core/abuse.py`). REST 429/413/503 get the
+  client's own words in `errorMessage` (429 quotes `Retry-After` when the browser can read
+  it). Socket `RATE_LIMITED` is toasted in the client's words. A handshake refused by the
+  connection cap ("Too many connections…") is not retried by socket.io-client, so
+  `socketHandlers` retries it itself (backoff with jitter, `CAP_RETRY_*`, bounded); an auth
+  refusal ("Connection rejected by server") is not retried. Events past the server's rate
+  limits are dropped unanswered, so every awaited reply has a timeout: a `preview_plan` is
+  sent once more after `PREVIEW_REPLY_TIMEOUT_MS`, then let go quietly (last reply kept);
+  `submit_day`, `create_game` and `retry_persist` free their button after
+  `REPLY_TIMEOUT_MS`.
 - **Store** (`src/store/`): `gameStore` holds server payloads and is written only by socket
   handlers; UI writes presentational flags only. `playback` holds the day-playback clock.
   `alerts` is the toast queue.
@@ -176,7 +186,7 @@ explicit before/after proposal instead of rewriting it.
 - PascalCase components/pages (`*Page.tsx`), camelCase modules, components grouped by
   feature (`board2d`, `board3d`, `charts`, `config`, `day`, `plan`, `report`, `shared`).
 - Errors from REST: `errorMessage(err, fallback)` in `src/api/http.ts` (handles FastAPI's
-  422 array `detail`). User-visible problems go through `useAlerts().push`.
+  422 array `detail`, and words 429/413/503 itself); never add per-call status handling. User-visible problems go through `useAlerts().push`.
 - **All browser-storage keys live in `src/utils/storage.ts`**, every access wrapped in
   try/catch (`guest_id`, `lemony_game_id`, `lemony_session_token`, `board_view`).
 - Styling: Tailwind v4 with tokens in `@theme` in `src/index.css` (`surface*`, `ink*`,
@@ -214,9 +224,10 @@ explicit before/after proposal instead of rewriting it.
   `detailed_stand.glb`.
 - **`DayView`'s rAF effect disables exhaustive-deps on purpose** (restarts only when the
   watched day changes).
-- **Test coverage** (18 files, 198 tests) is mostly pure logic (timeline, sceneModel,
+- **Test coverage** (19 files, 211 tests) is mostly pure logic (timeline, sceneModel,
   gameStore, openDayReport, planPreview), plus component and handler tests (`fields`,
-  `Select`, `PlanDay`, `playAgain`, `socketHandlers`, `chartKit`, `endgameCharts`,
+  `Select`, `PlanDay`, `playAgain`, `socketHandlers` (also the abuse-limit handling),
+  `httpErrors`, `chartKit`, `endgameCharts`,
   `DayReport`, `WhatIfChart` (also the plan screen's server figures), `configLimits`: the
   help and config screen quote the served limits and show only the server's figures, from
   the recorded `config_preview.json`, including the customers-a-day figure and its refusal) and source scans (`noGradient` fails on any CSS
