@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { GameState } from '../types/game'
 
 const listeners = new Map<string, (data: unknown) => void>()
@@ -9,7 +9,7 @@ vi.mock('../api/socket', () => ({
 
 const { useGameStore } = await import('../store/gameStore')
 const { useAlerts } = await import('../store/alerts')
-const { previewPlan } = await import('../api/socketHandlers')
+const { PREVIEW_REPLY_TIMEOUT_MS, previewPlan } = await import('../api/socketHandlers')
 
 const full = { game_id: 'g1', day: 3, phase: 'planning', days: [], summary: null, public_id: null } as unknown as GameState
 const plan = { purchases: { ice: { '100': 1 } }, recipe: { ice: 1, sugar: 2, lemons: 3 }, price: 0.45 }
@@ -141,5 +141,47 @@ describe('plan_preview and the seq gate', () => {
   it('a sequenced event with a low seq is still dropped (the gate is intact)', () => {
     listeners.get('game_state')!({ seq: 2, full: true, state: { ...full, day: 9 } })
     expect(useGameStore.getState().state?.day).toBe(3)
+  })
+})
+
+describe('a preview the server drops unanswered (rate limit)', () => {
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('is sent once more, then let go, keeping the last reply and toasting nothing', () => {
+    vi.useFakeTimers()
+    previewPlan(plan)
+    const [first] = sentIds()
+    listeners.get('plan_preview')!(ok(first, 4))
+    previewPlan(plan)
+    const [, dropped] = sentIds()
+    expect(useGameStore.getState().planPreview.waiting).toBe(true)
+
+    vi.advanceTimersByTime(PREVIEW_REPLY_TIMEOUT_MS)
+    expect(sentIds()).toEqual([first, dropped, dropped]) // the same request, once more
+    expect(useGameStore.getState().planPreview.waiting).toBe(true)
+
+    vi.advanceTimersByTime(PREVIEW_REPLY_TIMEOUT_MS)
+    const s = useGameStore.getState()
+    expect(s.planPreview).toMatchObject({ waiting: false, refused: false, requestId: dropped })
+    expect(s.planPreview.reply?.request_id).toBe(first)
+    expect(s.planPreview.reply?.expected_margin[0]).toBe(4)
+    expect(s.lastError).toBeNull()
+    expect(useAlerts.getState().alerts).toEqual([])
+    vi.advanceTimersByTime(60_000)
+    expect(sentIds()).toHaveLength(3) // no endless resend
+
+    listeners.get('plan_preview')!(ok(dropped, 9)) // a late reply still lands
+    expect(useGameStore.getState().planPreview.reply?.expected_margin[0]).toBe(9)
+  })
+
+  it('a newer request cancels the wait for the older one', () => {
+    vi.useFakeTimers()
+    previewPlan(plan)
+    vi.advanceTimersByTime(PREVIEW_REPLY_TIMEOUT_MS - 1)
+    previewPlan(plan)
+    vi.advanceTimersByTime(PREVIEW_REPLY_TIMEOUT_MS - 1)
+    expect(sentIds()).toHaveLength(2)
   })
 })
