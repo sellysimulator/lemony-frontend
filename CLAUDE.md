@@ -195,6 +195,10 @@ explicit before/after proposal instead of rewriting it.
   no gradients (`noGradient.test.ts` fails on one), and colour is never the only signal.
   The 2D board's weather skies are the one exception to tokens: raw palette colours, with
   the weather also named in the corner chip.
+- Safe area: `index.html` sets `viewport-fit=cover`, `body` pads its sides by the safe-area
+  insets, and any `fixed` control on a viewport edge offsets by
+  `max(<gutter>, env(safe-area-inset-<edge>))` (`AlertContainer` is the one today). Rule and
+  reasons in `../game_stack.md`.
 - Charts: the kit lives in `components/charts/`. `chartSetup.ts` has `registerCharts()`
   (no animation under reduced motion), the palettes, `barStyle`/`lineStyle` and
   `baseOptions({xLabel, yLabel, …})` with the canvas legend off. `ChartBox` takes a title,

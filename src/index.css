@@ -24,8 +24,12 @@ body,
   min-height: 100%;
 }
 
+/* viewport-fit=cover (index.html) runs the page under a landscape notch; the side
+   padding keeps flow content clear of it. See the safe-area rule in game_stack.md. */
 body {
   @apply bg-surface text-ink antialiased;
+  padding-left: env(safe-area-inset-left);
+  padding-right: env(safe-area-inset-right);
 }
 
 @media (prefers-reduced-motion: reduce) {
