@@ -11,7 +11,7 @@ const STYLE = {
 export default function AlertContainer(): ReactElement {
   const { alerts, dismiss } = useAlerts()
   return (
-    <div aria-live="assertive" className="pointer-events-none fixed top-4 right-4 z-[60] flex w-80 flex-col gap-2">
+    <div aria-live="assertive" className="pointer-events-none fixed top-[max(1rem,env(safe-area-inset-top))] right-[max(1rem,env(safe-area-inset-right))] z-[60] flex w-80 flex-col gap-2">
       {alerts.map((a) => (
         <div key={a.id} role="alert" className={`pointer-events-auto flex items-start gap-2 rounded-xl border px-4 py-3 text-sm shadow-lg ${STYLE[a.kind]}`}>
           <span className="flex-1">{a.message}</span>
