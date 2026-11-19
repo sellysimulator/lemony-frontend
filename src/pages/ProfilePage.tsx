@@ -126,7 +126,7 @@ function ProfilePage(): ReactElement {
               <tbody>
                 {games.map((g) => (
                   <tr key={g.public_id} className="border-t border-border">
-                    <td className="py-1.5">{new Date(`${g.finished_at}Z`).toLocaleString()}</td>
+                    <td className="py-1.5">{new Date(g.finished_at).toLocaleString()}</td>
                     <td>{g.days_played}</td>
                     <td className={g.total_profit >= 0 ? 'text-good' : 'text-bad'}>{money(g.total_profit)}</td>
                     <td>{g.total_buyers}</td>

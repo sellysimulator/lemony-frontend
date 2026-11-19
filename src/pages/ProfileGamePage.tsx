@@ -34,7 +34,7 @@ function ProfileGamePage(): ReactElement {
       {game ? (
         <div className="mt-3 space-y-5">
           <h1 className="text-3xl font-extrabold">
-            {game.days_played}-day game · {game.finished_at ? new Date(`${game.finished_at}Z`).toLocaleDateString() : ''}
+            {game.days_played}-day game · {game.finished_at ? new Date(game.finished_at).toLocaleDateString() : ''}
           </h1>
           <SummaryTiles summary={game} />
           <GameCharts summary={game} />

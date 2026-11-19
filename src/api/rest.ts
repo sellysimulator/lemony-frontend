@@ -48,6 +48,7 @@ export interface GameListItem {
   final_popularity?: number | null
   /** Cups sold ÷ visitors (server); null with no visitors. */
   conversion: number | null
+  /** ISO-8601 UTC with a `Z` (e.g. `2026-11-18T14:00:00Z`): `new Date()` parses it as UTC. */
   started_at: string
   finished_at: string
 }
