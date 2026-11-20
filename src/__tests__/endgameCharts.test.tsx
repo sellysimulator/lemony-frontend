@@ -159,7 +159,7 @@ function bars(c: Drawn): [number, number][] {
   })
 }
 
-describe('L1 price vs success rate bubble chart', () => {
+describe('price vs success rate bubble chart', () => {
   it('plots one point per day: x price, y conversion, size by visitors', () => {
     render(<GameCharts summary={SUMMARY} />)
     const c = last((x) => x.kind === 'bubble')
@@ -225,7 +225,7 @@ describe('L1 price vs success rate bubble chart', () => {
   })
 })
 
-describe('L3 cash waterfall', () => {
+describe('cash waterfall', () => {
   it('floats each bar from the previous server cash to this day\'s cash_end', () => {
     render(<GameCharts summary={SUMMARY} />)
     expect(bars(waterfall())).toEqual([
@@ -261,7 +261,7 @@ describe('L3 cash waterfall', () => {
   })
 })
 
-describe('L4 spoilage panels', () => {
+describe('spoilage panels', () => {
   const series = (n: string) => DAYS.map((d) => d.perished[n as keyof typeof zero])
 
   it('draws one panel per ingredient, each with only that ingredient in its own units', () => {
@@ -291,7 +291,7 @@ describe('L4 spoilage panels', () => {
   })
 })
 
-describe('L5 traffic by hour', () => {
+describe('traffic by hour', () => {
   it('stacks Bought and Did not buy (visitors minus buyers) per hour', () => {
     render(<GameCharts summary={SUMMARY} />)
     const c = last((x) => x.kind === 'bar' && x.data.datasets.some((d) => d.label === 'Did not buy'))
@@ -327,7 +327,7 @@ describe('L5 traffic by hour', () => {
   })
 })
 
-describe('L6 weather strip and crosshair', () => {
+describe('weather strip and crosshair', () => {
   it('shows a temperature and a weather label for each day, and no temperature chart', () => {
     render(<GameCharts summary={SUMMARY} />)
     for (const d of DAYS) {
@@ -360,7 +360,7 @@ describe('L6 weather strip and crosshair', () => {
   })
 })
 
-describe('L7 chart details', () => {
+describe('chart details', () => {
   it('draws the 50% line as a reference rule, not a dataset', () => {
     render(<GameCharts summary={SUMMARY} />)
     const c = last((x) => x.data.datasets.some((d) => d.label === 'Popularity'))

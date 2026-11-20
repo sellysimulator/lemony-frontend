@@ -1,7 +1,7 @@
 /**
  * The server is the one source of every game rule and figure: no file under `src/` other
- * than `src/__tests__/` brings back a formula the client used to copy from it. Each
- * pattern below is one of the copies that was removed (the demand maths, pack prices,
+ * than `src/__tests__/` holds a client-side copy of a server formula. Each pattern
+ * below is one such copy (the demand maths, pack prices,
  * the plan's spend, cash and margin, the popularity factor, success rates, the refusals
  * per hour, the spoilage total, the playback's sales and stock, the money rounding).
  * The scanner is tested on in-memory files first, so the scan over `src/` cannot pass

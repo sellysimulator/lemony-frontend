@@ -18,7 +18,8 @@ what comes back.
 ```
 Novus/
 ├── game_stack.md            shared template + security invariants (canonical copy)
-├── Beery/, Selly/           sibling games built from the same template
+├── Beery/, Selly/, Pulky/   sibling games built from the same template
+├── Supply/                  the game catalog (branded Selly)
 └── Lemony/
     ├── game_stack.md        generated copy — never edit in place
     ├── Lemony_Backend/      FastAPI + Socket.IO (github.com/sellysimulator/lemony-backend) → Render
@@ -40,8 +41,7 @@ other template pieces needs the user's explicit OK.
 
 ## Read these instead of re-deriving
 
-- **`README.md`** — run commands and "How it fits together". Its Firebase note is stale
-  (see Gotchas).
+- **`README.md`** — run commands and "How it fits together".
 - **`../Lemony_Backend/README.md` "Game rules"** — the de facto game spec; there is no
   separate design doc.
 - **`../Lemony_Backend/app/sockets/handlers/game.py` docstring** — socket contract table.
@@ -152,14 +152,6 @@ dropped the history, or states dropped `last_day_events` and a duplicate `day_re
 `events: null`), ship the frontend first, or an open tab on the old frontend crashes
 until it is reloaded.
 
-**The `fix/charts` release breaks that exception: deploy the backend first, then this app
-right after it.** The branch as a whole can't go frontend first: this app needs what the
-backend branch's earlier commits add (`POST /config/preview` and the other new server
-figures, plus Alembic migrations 0004 and 0005, which the backend's deploy applies). Keep
-the gap short. Until this app is live, an open tab on the old one can crash on a duplicate
-`day_result` (`events: null`) or on a resume of a played, unacknowledged day (no
-`last_day_events`), until it is reloaded. After this release the general rule applies again.
-
 | What | Frontend | Backend |
 |---|---|---|
 | Socket events & payloads (incl. `retry_persist`, `game_persist_failed`, `day_result.events` null when not available) | `src/api/socketHandlers.ts`, `src/types/game.ts`, `src/store/gameStore.ts` | `app/sockets/handlers/game.py`, `connection.py` |
@@ -210,6 +202,16 @@ explicit before/after proposal instead of rewriting it.
   `options.plugins.referenceRule`, never as a dataset. Every chart has a single y-axis, an
   x-axis title and a table view (accessibility). End-screen charts are in `charts/endgame/`
   (builders in `config.ts`); the plan's what-if chart is `plan/WhatIfChart.tsx`.
+- End screen (`GameCharts`, also on `ProfileGamePage`): the cash waterfall runs each bar from
+  the server's `cash_start` to its `cash_end`, never a running sum; spoilage is one panel per
+  ingredient in its own units, never summed across ingredients, with
+  `total_perished_value` in the caption; traffic by hour stacks Bought / Did not buy, then a
+  day-by-hour success-rate grid as an HTML table; the weather strip stands in for a
+  temperature chart, and every day-axis chart shares one crosshair group. Clicking a bubble
+  on the price-vs-success chart calls `openDayReport(day)`, which opens that day's report
+  with `events: []`, so `DayReport` hides "Replay day"; `ProfileGamePage` passes no handler,
+  so its bubbles are not clickable. Day report: "Why people said no" as bars ranked by
+  count, "By customer type" as bars in `PERSON_SERIES` colours with the success rate.
 
 ## Gotchas
 
