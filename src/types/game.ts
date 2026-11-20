@@ -92,8 +92,9 @@ export interface Limits {
   weather_multiplier: Range
   /**
    * Customers the busiest day of a config may expect: no single field, but what the traffic
-   * fields add up to. `ConfigPreview.customers_per_day` is the config's own figure. Absent from
-   * a backend older than 2026-11-03 (the frontend deploys first), so every reader checks it.
+   * fields add up to. `ConfigPreview.customers_per_day` is the config's own figure. Optional
+   * because the frontend deploys first and a backend without the field omits it, so every
+   * reader checks it.
    */
   customers_per_day?: Range
   unit_cost: Range
