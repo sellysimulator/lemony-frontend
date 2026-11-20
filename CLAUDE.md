@@ -171,6 +171,7 @@ the gap short. Until this app is live, an open tab on the old one can crash on a
 | Limits fixture | `src/__tests__/fixtures/limits.json` (byte-identical) | `tests/fixtures/limits.json` |
 | Cost per cup (shown, never computed) | `PlanDay`, `DayReport`, the help | `core/engine.py` `cup_cost` |
 | REST shapes (incl. `POST /config/preview`) | `src/api/rest.ts` | `app/schemas/user.py`, `app/api/v1/*` |
+| Timestamps (`created_at`, a stored game's `started_at` / `finished_at`): ISO-8601 UTC ending in `Z`, parsed with `new Date(value)` as is (never append a zone) | `pages/ProfilePage.tsx`, `pages/ProfileGamePage.tsx`, `src/api/rest.ts` | `app/schemas/types.py` (`utc_z`), `app/services/db_service.py` |
 | Engine output (`GameState`, `DayRecord`, summary) | `src/types/game.ts` (hand-written, no codegen) | `app/core/engine.py` |
 | Vocabulary constants (incl. refusal reasons) | `src/types/game.ts`, `src/utils/format.ts` `REASON_TEXT` | `core/defaults.py`, `core/demand.py` |
 

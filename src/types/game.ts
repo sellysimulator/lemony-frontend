@@ -267,6 +267,7 @@ export interface GameSummary {
   hour_totals: HourTotal[]
   days: DayRecord[]
   config?: GameConfig | null
+  /** ISO-8601 UTC with a `Z`, on stored games only. */
   started_at?: string
   finished_at?: string
 }
