@@ -97,8 +97,11 @@ export function AuthProvider(props: { children: ReactNode }): ReactElement {
     reconnectSocket()
   }, [])
 
+  // Only a signed-in user signs out: a guest leaves guest mode only by signing in, and without a
+  // Firebase user this does nothing, so the guest id (the guest's finished games) is never wiped.
   const logout = useCallback(async () => {
-    if (auth?.currentUser) await signOut(auth)
+    if (!auth?.currentUser) return
+    await signOut(auth)
     clearGuestId()
     clearStoredGame()
     useGameStore.getState().reset()
