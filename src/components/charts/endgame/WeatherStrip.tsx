@@ -2,7 +2,7 @@ import type { ReactElement } from 'react'
 import type { DayRecord } from '../../../types/game'
 import { WeatherIcon } from '../../shared/icons'
 
-/** L6: weather and temperature for each day, above the day-axis charts. */
+/** Weather and temperature for each day, above the day-axis charts. */
 export default function WeatherStrip({ days }: { days: DayRecord[] }): ReactElement {
   return (
     <section aria-label="Weather by day" className="lg:col-span-2">

@@ -45,7 +45,7 @@ function HourGrid({ days, hours }: { days: DayRecord[]; hours: number[] }): Reac
   )
 }
 
-/** L5: stacked Bought and Did not buy per hour (the server's `hour_totals`), then a day-by-hour grid of success rate. */
+/** Stacked Bought and Did not buy per hour (the server's `hour_totals`), then a day-by-hour grid of success rate. */
 export default function TrafficByHour({ days, totals }: { days: DayRecord[]; totals: HourTotal[] }): ReactElement {
   const hours = totals.map((t) => t.hour)
   const bought = totals.map((t) => t.buyers)

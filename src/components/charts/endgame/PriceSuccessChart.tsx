@@ -28,7 +28,7 @@ function TemperatureScale({ days }: { days: DayRecord[] }): ReactElement | null 
   )
 }
 
-/** L1: one bubble per day. x price, y success rate, size visitors, colour depth temperature. */
+/** One bubble per day. x price, y success rate, size visitors, colour depth temperature. */
 export default function PriceSuccessChart(props: { days: DayRecord[]; onSelectDay?: (day: number) => void }): ReactElement {
   const { days, onSelectDay } = props
   const base = baseOptions<'line'>({ xLabel: 'Price per cup', yLabel: 'Success rate', percent: true })

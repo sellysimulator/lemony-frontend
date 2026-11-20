@@ -14,7 +14,7 @@ const ITEMS = [
   { key: 'down', label: 'Cash went down', swatch: { kind: 'fill' as const, color: LOSS } },
 ]
 
-/** L3: each bar runs from the server's `cash_start` of a day to its `cash_end`; the change is the day's `profit`. */
+/** Each bar runs from the server's `cash_start` of a day to its `cash_end`; the change is the day's `profit`. */
 export default function CashWaterfall(props: DayChartProps & { summary: GameSummary }): ReactElement {
   const { days, plugins, summary } = props
   const { up, down, spans } = waterfallSpans(summary)

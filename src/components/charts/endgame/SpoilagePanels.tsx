@@ -6,7 +6,7 @@ import { DAY_AXIS, INGREDIENTS, perishedSeries, spoilageCaption } from './config
 import { forChart, type DayChartProps } from './shared'
 import type { GameSummary } from '../../../types/game'
 
-/** L4: one small panel per ingredient, each in its own units; nothing is added across ingredients. */
+/** One small panel per ingredient, each in its own units; nothing is added across ingredients. */
 export default function SpoilagePanels({ days, plugins, summary }: DayChartProps & { summary: GameSummary }): ReactElement {
   return (
     <section className="space-y-2 lg:col-span-2" aria-label="Spoiled ingredients per day">
