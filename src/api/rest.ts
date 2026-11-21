@@ -65,6 +65,14 @@ export async function getMyGame(publicId: string): Promise<GameSummary> {
   return (await http.get<GameSummary>(`/users/me/games/${encodeURIComponent(publicId)}`)).data
 }
 
+/**
+ * A finished game's results by its public id: open, no sign-in (the token is sent if there is
+ * one, and changes nothing). The owner's detail without its settings or start time.
+ */
+export async function getGameResults(publicId: string): Promise<GameSummary> {
+  return (await http.get<GameSummary>(`/games/id/${encodeURIComponent(publicId)}/results`)).data
+}
+
 export async function claimGuestGames(guestIdentity: string): Promise<number> {
   return (await http.post<{ claimed: number }>('/games/claim', { guest_identity: guestIdentity })).data.claimed
 }
