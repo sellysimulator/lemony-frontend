@@ -1,5 +1,5 @@
 import { fireEvent, render, screen, within } from '@testing-library/react'
-import { Chart as ChartJS } from 'chart.js'
+import { Animation, BarController, BasicPlatform, Chart as ChartJS, animator } from 'chart.js'
 import { useState, type ReactElement } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import ChartBox, { tableFromRows } from '../components/charts/ChartBox'
@@ -13,6 +13,46 @@ vi.mock('react-chartjs-2', () => ({
   Line: () => <canvas data-testid="line-canvas" />,
   Bar: () => <canvas data-testid="bar-canvas" />,
 }))
+
+/**
+ * The keys of Chart.js's own `defaults.animation`, read before chartSetup loads (the static imports
+ * above run registerCharts), so the tests compare against Chart.js and not against chartSetup.
+ */
+const { CHARTJS_ANIMATION_KEYS } = await vi.hoisted(async () => {
+  const { defaults } = await import('chart.js')
+  return { CHARTJS_ANIMATION_KEYS: Object.keys(defaults.animation as object) }
+})
+
+/**
+ * Gives the bar of a real chart a new colour, which starts a colour animation, then destroys the
+ * chart mid-way, as an unmount does. jsdom has no canvas: a context that ignores every call, and
+ * BasicPlatform minus its `animation: false`. registerCharts registers no controller
+ * (react-chartjs-2 does), so the bar controller is registered here.
+ */
+function destroyDuringColourAnimation(): void {
+  ChartJS.register(BarController)
+  class AnimatedPlatform extends BasicPlatform {
+    updateConfig(): void {}
+  }
+  const canvas = { width: 300, height: 150, style: {} } as Record<string, unknown>
+  const ctx = new Proxy({ canvas } as Record<string | symbol, unknown>, {
+    get: (target, prop) => (prop in target ? target[prop] : () => ({ width: 0 })),
+    set: () => true,
+  })
+  canvas.getContext = () => ctx
+  const chart = new ChartJS(canvas as unknown as HTMLCanvasElement, {
+    type: 'bar',
+    platform: AnimatedPlatform,
+    data: { labels: ['1'], datasets: [{ data: [1], backgroundColor: '#000000' }] },
+  })
+  try {
+    chart.data.datasets[0].backgroundColor = '#ffffff'
+    chart.update()
+    chart.destroy()
+  } finally {
+    animator.remove(chart as never)
+  }
+}
 
 const TABLE = { head: ['Day', 'Cash'], rows: [[1, '$10'], [2, '$12']] }
 
@@ -256,6 +296,36 @@ describe('registerCharts', () => {
   it('keeps the canvas legend off by default', () => {
     registerCharts()
     expect(ChartJS.defaults.plugins.legend.display).toBe(false)
+  })
+
+  it('keeps every animation key Chart.js reads, so colour animations have an interpolator', () => {
+    registerCharts()
+    expect(CHARTJS_ANIMATION_KEYS).toEqual(expect.arrayContaining(['type', 'fn', 'from', 'to']))
+    const keys = Object.keys(ChartJS.defaults.animation as object)
+    for (const key of CHARTJS_ANIMATION_KEYS) expect(keys).toContain(key)
+
+    // What Animations.configure keeps for a colour property: only the keys of Chart.defaults.animation.
+    const colors: Record<string, unknown> = { ...(ChartJS.defaults.animations.colors as object), duration: 250 }
+    const kept = Object.fromEntries(keys.map((k) => [k, colors[k]]))
+    const animation = new Animation(kept, { backgroundColor: '#000000' }, 'backgroundColor', '#ffffff')
+    // cancel() ticks once, the same path as Animator.stop when a chart is destroyed mid-animation.
+    expect(() => animation.cancel()).not.toThrow()
+  })
+
+  it('lets a real chart be destroyed while a colour animation runs (an unmount mid-animation)', () => {
+    registerCharts()
+    expect(() => destroyDuringColourAnimation()).not.toThrow()
+  })
+
+  it('restores every animation key after a reduced-motion call left animation false', () => {
+    stubReducedMotion(true)
+    registerCharts()
+    expect(ChartJS.defaults.animation).toBe(false)
+    // A later call finds the `false` the earlier one left and must put Chart.js's whole object back.
+    stubReducedMotion(false)
+    registerCharts()
+    for (const key of CHARTJS_ANIMATION_KEYS) expect(Object.keys(ChartJS.defaults.animation as object)).toContain(key)
+    expect(() => destroyDuringColourAnimation()).not.toThrow()
   })
 })
 

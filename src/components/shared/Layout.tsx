@@ -2,10 +2,15 @@ import type { ReactElement, ReactNode } from 'react'
 import { Citrus } from 'lucide-react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useAuth } from '../../auth/AuthContext'
+import { useAlerts } from '../../store/alerts'
 
-/** App chrome: brand, who you are, profile and sign-out. */
+/**
+ * App chrome: brand, who you are, profile, and sign-out for a signed-in user. A guest has no
+ * sign-out and leaves guest mode only by signing in (game_stack.md "Only signed-in users sign out").
+ */
 export default function Layout(props: { children: ReactNode; wide?: boolean }): ReactElement {
-  const { firebaseUser, mode, logout } = useAuth()
+  const { firebaseUser, mode, googleAvailable, signInWithGoogle, logout } = useAuth()
+  const push = useAlerts((s) => s.push)
   const navigate = useNavigate()
   const name = firebaseUser?.displayName ?? (mode === 'guest' ? 'Guest' : '')
   return (
@@ -23,13 +28,23 @@ export default function Layout(props: { children: ReactNode; wide?: boolean }): 
               <img src={firebaseUser.photoURL} alt="" referrerPolicy="no-referrer" className="h-7 w-7 rounded-full" />
             ) : null}
             <span className="hidden text-ink-muted sm:inline">{name}</span>
-            <button
-              type="button"
-              onClick={() => void logout().then(() => navigate('/'))}
-              className="rounded-md border border-border px-2 py-1 text-ink-muted hover:border-brand-strong hover:text-ink"
-            >
-              Sign out
-            </button>
+            {mode === 'authenticated' ? (
+              <button
+                type="button"
+                onClick={() => void logout().then(() => navigate('/'))}
+                className="rounded-md border border-border px-2 py-1 text-ink-muted hover:border-brand-strong hover:text-ink"
+              >
+                Sign out
+              </button>
+            ) : googleAvailable ? (
+              <button
+                type="button"
+                onClick={() => void signInWithGoogle().catch(() => push('error', 'Google sign-in did not complete. You can try again.'))}
+                className="rounded-md border border-border px-2 py-1 text-ink-muted hover:border-brand-strong hover:text-ink"
+              >
+                Sign in
+              </button>
+            ) : null}
           </nav>
         </div>
       </header>
