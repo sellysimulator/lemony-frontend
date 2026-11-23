@@ -12,7 +12,7 @@ export default function ReconnectingNotice(): ReactElement | null {
   return (
     <div role="status" className="mb-4 flex items-center gap-2 rounded-xl border border-border bg-surface-sunken px-4 py-2 text-sm text-ink">
       <LoaderCircle aria-hidden className="size-4 shrink-0 animate-spin text-warn" />
-      <span>Reconnecting to the game server… Your game is safe and carries on once the link is back.</span>
+      <span>Connection lost. Reconnecting…</span>
     </div>
   )
 }

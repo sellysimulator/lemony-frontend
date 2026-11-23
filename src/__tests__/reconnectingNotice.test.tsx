@@ -12,7 +12,7 @@ describe('ReconnectingNotice', () => {
     act(() => useConnection.setState({ connected: true, everConnected: true }))
     expect(screen.queryByRole('status')).toBeNull()
     act(() => useConnection.setState({ connected: false }))
-    expect(screen.getByRole('status').textContent).toMatch(/Reconnecting/)
+    expect(screen.getByRole('status').textContent).toBe('Connection lost. Reconnecting…')
     act(() => useConnection.setState({ connected: true }))
     expect(screen.queryByRole('status')).toBeNull()
   })
