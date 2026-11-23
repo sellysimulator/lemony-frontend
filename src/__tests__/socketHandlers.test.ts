@@ -4,13 +4,16 @@ import type { DailyGameState, DayRecord, GameState } from '../types/game'
 const listeners = new Map<string, (data: unknown) => void>()
 const emit = vi.fn()
 const socketMock = vi.hoisted(() => ({ active: false, connected: false, connect: (() => {}) as () => void }))
+const signedIn = vi.hoisted(() => ({ value: false }))
 vi.mock('../api/socket', () => ({
   socket: Object.assign(socketMock, { on: (event: string, fn: (data: unknown) => void) => listeners.set(event, fn), emit }),
+  isSignedIn: () => signedIn.value,
 }))
 
 const { useGameStore } = await import('../store/gameStore')
 const { useAlerts } = await import('../store/alerts')
-const { CAP_RETRY_ATTEMPTS, REPLY_TIMEOUT_MS, createGame, submitDay } = await import('../api/socketHandlers')
+const { useConnection } = await import('../store/connection')
+const { CAP_RETRY_ATTEMPTS, REPLY_TIMEOUT_MS, SIGNED_IN_RETRY_MS, createGame, submitDay } = await import('../api/socketHandlers')
 
 const record = { day: 1 } as DayRecord
 const full = { game_id: 'g1', day: 1, phase: 'planning', days: [], summary: null, public_id: null } as unknown as GameState
@@ -131,6 +134,33 @@ describe('abuse limits on the socket', () => {
     listeners.get('connect_error')!(new Error(CAP))
     vi.advanceTimersByTime(1000)
     expect(connect).toHaveBeenCalledTimes(2) // the first wait again, not the doubled one
+  })
+
+  it('a signed-in user refused at the handshake is told and retried after 5 s while signed in', () => {
+    signedIn.value = true
+    try {
+      listeners.get('connect_error')!(new Error(AUTH))
+      expect(alertTexts()).toEqual(['Could not reach the game server. Retrying…'])
+      vi.advanceTimersByTime(SIGNED_IN_RETRY_MS - 1)
+      expect(connect).not.toHaveBeenCalled()
+      vi.advanceTimersByTime(1)
+      expect(connect).toHaveBeenCalledTimes(1)
+
+      listeners.get('connect_error')!(new Error(AUTH))
+      signedIn.value = false // signed out meanwhile: no more retries
+      vi.advanceTimersByTime(SIGNED_IN_RETRY_MS)
+      expect(connect).toHaveBeenCalledTimes(1)
+    } finally {
+      signedIn.value = false
+    }
+  })
+
+  it('the link state drives the reconnecting notice: only a link that was up is reconnecting', () => {
+    useConnection.setState({ connected: false, everConnected: false })
+    listeners.get('connect')!(undefined)
+    expect(useConnection.getState()).toEqual({ connected: true, everConnected: true })
+    listeners.get('disconnect')!(undefined)
+    expect(useConnection.getState()).toEqual({ connected: false, everConnected: true })
   })
 
   it('an auth refusal is not retried as the cap', () => {

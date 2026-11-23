@@ -2,6 +2,7 @@ import { useEffect, type ReactElement } from 'react'
 import { Link } from 'react-router-dom'
 import Layout from '../components/shared/Layout'
 import LoadingSpinner from '../components/shared/LoadingSpinner'
+import ReconnectingNotice from '../components/shared/ReconnectingNotice'
 import PlanDay from '../components/plan/PlanDay'
 import DayView from '../components/day/DayView'
 import { loadBoard3D } from '../components/board3d/load'
@@ -52,7 +53,12 @@ function PlayPage(): ReactElement {
     body = <PlanDay key={state.day} state={state} />
   }
 
-  return <Layout wide>{body}</Layout>
+  return (
+    <Layout wide>
+      <ReconnectingNotice />
+      {body}
+    </Layout>
+  )
 }
 
 export const route: RouteDescriptor = { path: '/play', guard: 'auth+backend', element: <PlayPage /> }

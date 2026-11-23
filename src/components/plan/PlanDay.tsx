@@ -2,6 +2,7 @@ import { useEffect, useState, type ReactElement } from 'react'
 import Card, { Stat } from '../shared/Card'
 import { previewPlan, submitDay } from '../../api/socketHandlers'
 import { useGameStore } from '../../store/gameStore'
+import { useConnection } from '../../store/connection'
 import { INGREDIENTS, RECIPE_INGREDIENTS, type GameState, type IngredientName } from '../../types/game'
 import { Sun, TriangleAlert } from 'lucide-react'
 import { money, pct } from '../../utils/format'
@@ -36,6 +37,9 @@ export default function PlanDay(props: { state: GameState }): ReactElement {
   const { state } = props
   const cfg = state.config
   const submitting = useGameStore((s) => s.submitting)
+  // A submit sent while the link is down is buffered and replayed before the rejoin, which the
+  // server then refuses: the plan would be lost. So the stand opens only while connected.
+  const connected = useConnection((s) => s.connected)
   const [purchases, setPurchases] = useState<Purchases>(emptyPurchases)
   const [recipe, setRecipe] = useState(() => ({ ...state.suggested_plan.recipe }))
   const [price, setPrice] = useState(() => state.suggested_plan.price)
@@ -277,11 +281,13 @@ export default function PlanDay(props: { state: GameState }): ReactElement {
           </p>
           <button
             type="button"
-            disabled={submitting || Boolean(refusal) || Boolean(shown?.price_error)}
+            disabled={!connected || submitting || Boolean(refusal) || Boolean(shown?.price_error)}
             onClick={open}
             className="mt-4 w-full rounded-xl bg-leaf px-5 py-3 text-lg font-bold text-white shadow-sm hover:brightness-95 disabled:opacity-40"
           >
-            {submitting ? (
+            {!connected ? (
+              'Reconnecting…'
+            ) : submitting ? (
               'Opening the stand…'
             ) : (
               <span className="inline-flex items-center justify-center gap-2">

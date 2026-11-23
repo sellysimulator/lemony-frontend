@@ -3,6 +3,7 @@ import type { ReactElement } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import PlanDay from '../components/plan/PlanDay'
 import WhatIfChart from '../components/plan/WhatIfChart'
+import { useConnection } from '../store/connection'
 import { useGameStore } from '../store/gameStore'
 import type { PlanPreviewOk } from '../types/game'
 import { planningState } from './fixtures/gameState'
@@ -61,6 +62,7 @@ beforeEach(() => {
   previewPlan.mockClear()
   submitDay.mockClear()
   useGameStore.getState().reset()
+  useConnection.setState({ connected: true, everConnected: true })
 })
 afterEach(() => {
   vi.useRealTimers()
@@ -239,6 +241,17 @@ describe('PlanDay plan figures', () => {
     })
     expect(screen.getByRole('alert').textContent).toContain('Purchases cost $105.00 but you only have $100.00')
     expect(screen.getByRole('button', { name: /open the stand/i })).toBeDisabled()
+  })
+
+  it('keeps the stand closed while the link to the server is down, and says it is reconnecting', () => {
+    useConnection.setState({ connected: false, everConnected: true })
+    render(<PlanDay state={planningState()} />)
+    const button = screen.getByRole('button', { name: /reconnecting/i })
+    expect(button).toBeDisabled()
+    fireEvent.click(button)
+    expect(submitDay).not.toHaveBeenCalled()
+    act(() => useConnection.setState({ connected: true }))
+    expect(screen.getByRole('button', { name: /open the stand/i })).toBeEnabled()
   })
 
   it("shows the server's verdict on the price and keeps the stand closed", () => {
