@@ -24,6 +24,19 @@ function retryAfterSeconds(value: unknown): number | null {
   return Number.isFinite(seconds) && seconds > 0 ? seconds : null
 }
 
+/** A 429 waits this long when its `Retry-After` can't be read. */
+const DEFAULT_RETRY_AFTER_S = 30
+
+/**
+ * For a rate-limited request (429), how long to wait before asking again, in ms: its
+ * `Retry-After`, else `DEFAULT_RETRY_AFTER_S`. Null for any other outcome.
+ */
+export function retryAfterMs(err: unknown): number | null {
+  const response = (err as { response?: { status?: number; headers?: Record<string, unknown> } } | null | undefined)?.response
+  if (response?.status !== 429) return null
+  return (retryAfterSeconds(response.headers?.['retry-after']) ?? DEFAULT_RETRY_AFTER_S) * 1000
+}
+
 /**
  * A string that is always safe to render. FastAPI's `detail` is a string for
  * HTTPException but an array of objects for 422s — rendering that array

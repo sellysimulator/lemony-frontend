@@ -9,7 +9,7 @@ import InfoButton from '../components/config/docs/InfoButton'
 import PacksEditor from '../components/config/PacksEditor'
 import { DocsConfigContext } from '../components/config/docs/docsContext'
 import { IngredientIcon, PersonIcon, WeatherIcon } from '../components/shared/icons'
-import { errorMessage } from '../api/http'
+import { errorMessage, retryAfterMs } from '../api/http'
 import { getConfigDefaults, getConfigPreview } from '../api/rest'
 import { createGame } from '../api/socketHandlers'
 import { useGameStore } from '../store/gameStore'
@@ -130,6 +130,8 @@ function ConfigPage(): ReactElement {
     error: string | null
   }>({ for: null, reply: null, error: null })
   const { creating, justCreated, lastError } = useGameStore()
+  // Bumped to ask again for the same config after a rate-limited (429) preview.
+  const [previewRetry, setPreviewRetry] = useState(0)
 
   useEffect(() => {
     getConfigDefaults()
@@ -141,23 +143,29 @@ function ConfigPage(): ReactElement {
       .catch((err) => setLoadError(errorMessage(err, 'Could not load the default configuration.')))
   }, [handed])
 
-  // The server owns the rules and every figure: ask it, never re-implement them here.
+  // The server owns the rules and every figure: ask it, never re-implement them here. A
+  // rate-limited answer (429) is asked again after its Retry-After, so Start is never left off
+  // for good: the verdict gates it.
   useEffect(() => {
     if (!config) return
     let live = true
+    let retry: ReturnType<typeof setTimeout> | undefined
     const timer = setTimeout(() => {
       getConfigPreview(config)
         .then((reply) => live && setPreview({ for: config, reply, error: null }))
-        .catch(
-          (err) =>
-            live && setPreview((prev) => ({ for: config, reply: prev.reply, error: errorMessage(err, 'Some values are not valid numbers.') })),
-        )
+        .catch((err) => {
+          if (!live) return
+          setPreview((prev) => ({ for: config, reply: prev.reply, error: errorMessage(err, 'Some values are not valid numbers.') }))
+          const wait = retryAfterMs(err)
+          if (wait !== null) retry = setTimeout(() => live && setPreviewRetry((n) => n + 1), wait)
+        })
     }, PREVIEW_DEBOUNCE_MS)
     return () => {
       live = false
       clearTimeout(timer)
+      clearTimeout(retry)
     }
-  }, [config])
+  }, [config, previewRetry])
 
   useEffect(() => {
     if (!justCreated) return
