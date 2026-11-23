@@ -2,6 +2,7 @@ import type { ReactElement, ReactNode } from 'react'
 import { Citrus } from 'lucide-react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useAuth } from '../../auth/AuthContext'
+import { confirmGuestSignIn } from '../../auth/confirmGuestSignIn'
 import { useAlerts } from '../../store/alerts'
 
 /**
@@ -39,7 +40,10 @@ export default function Layout(props: { children: ReactNode; wide?: boolean }): 
             ) : googleAvailable ? (
               <button
                 type="button"
-                onClick={() => void signInWithGoogle().catch(() => push('error', 'Google sign-in did not complete. You can try again.'))}
+                onClick={() => {
+                  if (!confirmGuestSignIn(mode)) return
+                  void signInWithGoogle().catch(() => push('error', 'Google sign-in did not complete. You can try again.'))
+                }}
                 className="rounded-md border border-border px-2 py-1 text-ink-muted hover:border-brand-strong hover:text-ink"
               >
                 Sign in
