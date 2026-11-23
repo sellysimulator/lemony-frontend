@@ -31,10 +31,14 @@ describe('errorMessage and the backend abuse limits', () => {
 })
 
 describe('retryAfterMs', () => {
-  it('waits what a 429 says, else 30 s; anything else is not retried', async () => {
+  it('waits what a 429 says (1–60 s), else 5 s; anything else is not retried', async () => {
     const { retryAfterMs } = await import('../api/http')
+    expect(retryAfterMs(reply(429, { 'retry-after': '12' }))).toBe(12_000)
     expect(retryAfterMs(reply(429, { 'retry-after': '60' }))).toBe(60_000)
-    expect(retryAfterMs(reply(429))).toBe(30_000)
+    expect(retryAfterMs(reply(429, { 'retry-after': '3600' }))).toBe(60_000)
+    expect(retryAfterMs(reply(429, { 'retry-after': '0' }))).toBe(5_000)
+    expect(retryAfterMs(reply(429, { 'retry-after': 'soon' }))).toBe(5_000)
+    expect(retryAfterMs(reply(429))).toBe(5_000)
     expect(retryAfterMs(reply(500))).toBeNull()
     expect(retryAfterMs(new Error('Network Error'))).toBeNull()
   })

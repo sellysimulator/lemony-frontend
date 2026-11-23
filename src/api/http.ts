@@ -24,17 +24,19 @@ function retryAfterSeconds(value: unknown): number | null {
   return Number.isFinite(seconds) && seconds > 0 ? seconds : null
 }
 
-/** A 429 waits this long when its `Retry-After` can't be read. */
-const DEFAULT_RETRY_AFTER_S = 30
+/** A 429 waits this long when its `Retry-After` can't be read (the browser hides it unless CORS exposes it). */
+const DEFAULT_RETRY_AFTER_MS = 5_000
 
 /**
  * For a rate-limited request (429), how long to wait before asking again, in ms: its
- * `Retry-After`, else `DEFAULT_RETRY_AFTER_S`. Null for any other outcome.
+ * `Retry-After` kept within 1–60 s, else `DEFAULT_RETRY_AFTER_MS`. Null for any other outcome.
  */
 export function retryAfterMs(err: unknown): number | null {
   const response = (err as { response?: { status?: number; headers?: Record<string, unknown> } } | null | undefined)?.response
   if (response?.status !== 429) return null
-  return (retryAfterSeconds(response.headers?.['retry-after']) ?? DEFAULT_RETRY_AFTER_S) * 1000
+  const seconds = retryAfterSeconds(response.headers?.['retry-after'])
+  if (seconds === null) return DEFAULT_RETRY_AFTER_MS
+  return Math.min(60_000, Math.max(1_000, seconds * 1_000))
 }
 
 /**
