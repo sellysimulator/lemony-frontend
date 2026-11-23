@@ -40,7 +40,7 @@ function WelcomeScreen(): ReactElement {
     <div className="flex min-h-screen items-center justify-center bg-surface px-4">
       <div className="w-full max-w-md rounded-3xl border border-border bg-surface-raised p-8 text-center shadow-xl">
         <Citrus aria-hidden className="mx-auto size-20 text-brand-strong" strokeWidth={2} />
-        <h1 className="mt-2 text-4xl font-extrabold tracking-tight">Lemony</h1>
+        <h1 className="mt-2 text-4xl font-extrabold tracking-tight">Lemonade Game</h1>
         <p className="mt-2 text-ink-muted">
           Run your own lemonade stand. Buy ingredients, set a price and recipe, then watch every customer walk up
           — and decide.
