@@ -5,9 +5,11 @@ const listeners = new Map<string, (data: unknown) => void>()
 const emit = vi.fn()
 const socketMock = vi.hoisted(() => ({ active: false, connected: false, connect: (() => {}) as () => void }))
 const signedIn = vi.hoisted(() => ({ value: false }))
+const identity = vi.hoisted(() => ({ value: true }))
 vi.mock('../api/socket', () => ({
   socket: Object.assign(socketMock, { on: (event: string, fn: (data: unknown) => void) => listeners.set(event, fn), emit }),
   isSignedIn: () => signedIn.value,
+  hasIdentity: () => identity.value,
 }))
 
 const { useGameStore } = await import('../store/gameStore')
@@ -137,6 +139,17 @@ describe('abuse limits on the socket', () => {
     expect(connect).toHaveBeenCalledTimes(CAP_RETRY_ATTEMPTS) // bounded
   })
 
+  it('a cap retry that comes due once no identity is left (signed out) does not connect', () => {
+    listeners.get('connect_error')!(new Error(CAP))
+    identity.value = false
+    try {
+      vi.advanceTimersByTime(60_000)
+      expect(connect).not.toHaveBeenCalled()
+    } finally {
+      identity.value = true
+    }
+  })
+
   it('a successful connect resets the retry count', () => {
     listeners.get('connect_error')!(new Error(CAP))
     vi.advanceTimersByTime(1000)
@@ -188,7 +201,16 @@ describe('abuse limits on the socket', () => {
     expect(connect).not.toHaveBeenCalled()
   })
 
+  it('a plan is not sent while the socket is not connected (it would be refused and lost)', () => {
+    listeners.get('game_state')!({ seq: 2, full: true, state: full })
+    emit.mockClear()
+    submitDay({ purchases: {}, price: 1, recipe: { ice: 1, sugar: 1, lemons: 1 } } as never)
+    expect(emit).not.toHaveBeenCalled()
+    expect(useGameStore.getState().submitting).toBe(false)
+  })
+
   it('an unanswered submit_day or create_game frees its button', () => {
+    socketMock.connected = true
     listeners.get('game_state')!({ seq: 2, full: true, state: full })
     submitDay({ purchases: {}, price: 1, recipe: { ice: 1, sugar: 1, lemons: 1 } } as never)
     createGame({} as never)

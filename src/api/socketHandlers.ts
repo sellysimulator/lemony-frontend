@@ -3,7 +3,7 @@
  * main.tsx, before React renders, so StrictMode double-mounts cannot double
  * register), plus the emit helpers the UI calls.
  */
-import { isSignedIn, socket } from './socket'
+import { hasIdentity, isSignedIn, socket } from './socket'
 import { useGameStore } from '../store/gameStore'
 import { useAlerts } from '../store/alerts'
 import { useConnection } from '../store/connection'
@@ -77,7 +77,8 @@ socket.on('connect_error', (err: Error) => {
     if (capRetryTimer) clearTimeout(capRetryTimer)
     capRetryTimer = setTimeout(() => {
       capRetryTimer = null
-      if (!socket.connected && !socket.active) socket.connect()
+      // Signed out meanwhile with no guest id: no identity, so no handshake (it is refused).
+      if (!socket.connected && !socket.active && hasIdentity()) socket.connect()
     }, capRetryDelay(capRetries++))
     return
   }
@@ -209,7 +210,9 @@ export function createGame(config: GameConfig, replace = false): void {
 
 export function submitDay(plan: DayPlanPayload): void {
   const { gameId, state } = useGameStore.getState()
-  if (!gameId || !state) return
+  // A plan sent while disconnected is buffered and replayed before `resume_game`, and the
+  // server refuses it: the plan would be lost (PlanDay disables its button meanwhile too).
+  if (!gameId || !state || !socket.connected) return
   useGameStore.getState().setSubmitting(true)
   socket.emit('submit_day', { game_id: gameId, day: state.day, ...plan })
   expectReply('submit', REPLY_TIMEOUT_MS, () => useGameStore.getState().submitting, () => {

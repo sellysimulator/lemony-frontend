@@ -79,9 +79,10 @@ other template pieces needs the user's explicit OK.
   On every `connect` the client emits `resume_game` from localStorage. The reconnect loop
   never gives up (no `reconnectionAttempts`, `reconnectionDelayMax` 10 s). `store/connection.ts`
   holds the link (`connected`, `everConnected`); while a link that was up is down,
-  `PlayPage` shows `ReconnectingNotice` and `PlanDay`'s "Open the stand" is disabled (an
-  emit sent while disconnected is buffered and replayed before `resume_game`, and the
-  server would refuse it).
+  `PlayPage` shows `ReconnectingNotice` ("Connection lost. Reconnecting…"). Whenever the
+  socket is not connected `PlanDay`'s "Open the stand" is disabled and `submitDay` sends
+  nothing (an emit sent while disconnected is buffered and replayed before `resume_game`,
+  and the server would refuse it).
 - **Signing in as a guest mid-game.** The live game belongs to the guest identity and does
   not carry over to the account (only finished games can be claimed, from the profile), so
   `Layout` and `ProfilePage` ask first (`window.confirm`, `auth/confirmGuestSignIn.ts`) while
@@ -90,10 +91,12 @@ other template pieces needs the user's explicit OK.
   client's own words in `errorMessage` (429 quotes `Retry-After` when the browser can read
   it). Socket `RATE_LIMITED` is toasted in the client's words. A handshake refused by the
   connection cap ("Too many connections…") is not retried by socket.io-client, so
-  `socketHandlers` retries it itself (backoff with jitter, `CAP_RETRY_*`, bounded); an auth
-  refusal ("Connection rejected by server") is retried every 5 s only while signed in. A
-  429 on `POST /config/preview` is asked again after its `Retry-After` (`http.retryAfterMs`,
-  30 s when unreadable), so Start is never left off for good. Events past the server's rate
+  `socketHandlers` retries it itself (backoff with jitter, `CAP_RETRY_*`, bounded, and only
+  while `hasIdentity()`: no handshake without an identity); an auth refusal ("Connection
+  rejected by server") is retried every 5 s only while signed in. A 429 on
+  `POST /config/preview` is asked again after its `Retry-After` (`http.retryAfterMs`: the
+  header's seconds kept within 1–60 s, 5 s when missing or unreadable), so Start is never
+  left off for good. Events past the server's rate
   limits are dropped unanswered, so every awaited reply has a timeout: a `preview_plan` is
   sent once more after `PREVIEW_REPLY_TIMEOUT_MS`, then let go quietly (last reply kept);
   `submit_day`, `create_game` and `retry_persist` free their button after
@@ -279,6 +282,11 @@ explicit before/after proposal instead of rewriting it.
   (the guest mid-game sign-in question). Most components and `api/` are untested.
 
 ## Deploy
+
+**Deploy order for the handoff-hardening release: backend before frontend.** The new
+frontend sends `{idToken: null, guestId: null}` when a signed-in user's token can't be
+fetched and relies on the new backend refusing it (the old one minted a guest); the new
+backend still accepts the old frontend's signed-in and guest handshakes.
 
 Firebase project `lemony-89f41` (site expected at `lemonysim.web.app`, per the backend's
 CORS). `.github/workflows/firebase-hosting-merge.yml` builds and deploys `dist` on push to

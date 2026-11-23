@@ -35,6 +35,11 @@ export function isSignedIn(): boolean {
   return Boolean(auth?.currentUser)
 }
 
+/** Whether there is an identity to connect with: a Firebase user, or a stored guest id. */
+export function hasIdentity(): boolean {
+  return isSignedIn() || Boolean(getGuestId())
+}
+
 /**
  * Deliberately NOT auto-connected: this module loads before Firebase restores
  * a session, so an auto-connect would always handshake anonymously.
@@ -62,5 +67,5 @@ export const socket: Socket = io(SOCKET_URL, {
  */
 export function reconnectSocket(): void {
   if (socket.connected || socket.active) socket.disconnect()
-  if (isSignedIn() || getGuestId()) socket.connect()
+  if (hasIdentity()) socket.connect()
 }
