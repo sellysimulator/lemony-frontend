@@ -169,8 +169,14 @@ const ERROR_TEXT: Record<string, string> = {
 socket.on('error', (data: ServerErrorEvent) => {
   const code = data?.code ?? 'SERVER_ERROR'
   const message = ERROR_TEXT[code] ?? data?.message ?? 'Something went wrong.'
+  if (code === 'NO_GAME') {
+    // The game this tab holds is gone (abandoned, or replaced from another tab or device):
+    // drop it entirely and ask for whatever this identity is playing now.
+    clearStoredGame()
+    useGameStore.getState().reset()
+  }
   useGameStore.getState().handleError(code, message)
-  if (code === 'NO_GAME') clearStoredGame()
+  if (code === 'NO_GAME') resumeGame()
   if (code !== 'ACTIVE_GAME_EXISTS') useAlerts.getState().push('error', message)
 })
 

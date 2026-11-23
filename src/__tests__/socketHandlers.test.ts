@@ -62,6 +62,16 @@ describe('round events on the socket', () => {
     expect(useGameStore.getState().persistFailed).toBe(false)
   })
 
+  it('NO_GAME drops the held game entirely and asks for the one this identity plays now', () => {
+    listeners.get('game_state')!({ seq: 40, full: true, state: full })
+    listeners.get('error')!({ code: 'NO_GAME', message: 'That game does not exist or is not yours.' })
+    expect(useGameStore.getState()).toMatchObject({ state: null, gameId: null, lastSeq: 0, resume: 'unknown' })
+    expect(emit).toHaveBeenLastCalledWith('resume_game', { game_id: null, session_token: null })
+    // The fallback game's state is taken although its seq is far below the old game's.
+    listeners.get('game_state')!({ seq: 3, full: true, state: { ...full, game_id: 'g2' } })
+    expect(useGameStore.getState()).toMatchObject({ gameId: 'g2', resume: 'active' })
+  })
+
   it('ask for the full state when no history of that game is held', () => {
     listeners.get('day_result')!({ seq: 3, day: 1, record, events: [], duplicate: false, state: daily({}) })
     listeners.get('game_state')!({ seq: 4, full: false, state: daily({ day: 2, phase: 'planning' }) })
