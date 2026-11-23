@@ -9,6 +9,7 @@ import { INGREDIENTS, type GameSummary } from '../../types/game'
 import { Trophy } from 'lucide-react'
 import { money, pct } from '../../utils/format'
 import { IngredientIcon } from '../shared/icons'
+import { resultsPath } from '../../routes/resultsPath'
 
 export function SummaryTiles(props: { summary: GameSummary }): ReactElement {
   const s = props.summary
@@ -44,6 +45,8 @@ export function SummaryTiles(props: { summary: GameSummary }): ReactElement {
 /**
  * The end screen. "Play again" appears only once the game is saved: a new game would
  * leave an unsaved one behind, so until then it shows the save in progress, or a retry.
+ * Once saved (the public id known) it links to the game's results page, `/results/:publicId`,
+ * for guests and signed-in players alike.
  */
 export default function GameOver(props: { summary: GameSummary | null; publicId: string | null; saveFailed: boolean; signedIn: boolean }): ReactElement {
   const openDayReport = useGameStore((s) => s.openDayReport)
@@ -64,15 +67,20 @@ export default function GameOver(props: { summary: GameSummary | null; publicId:
               Try saving again
             </button>
           ) : null}
+          {props.publicId ? (
+            <Link to={resultsPath(props.publicId)} className="rounded-xl border border-border px-4 py-2 text-sm">
+              Results page
+            </Link>
+          ) : null}
           {props.signedIn && saved ? (
-            <Link to={`/profile/games/${props.publicId}`} className="rounded-xl border border-border px-4 py-2 text-sm">
+            <Link to="/profile" className="rounded-xl border border-border px-4 py-2 text-sm">
               Saved to your profile
             </Link>
           ) : null}
         </div>
       </div>
       <p className="text-sm text-ink-muted" role="status">
-        {saved ? 'This game is saved.' : props.saveFailed ? 'This game could not be saved yet. Try again to keep it; a new game opens once it is saved.' : 'Saving this game…'}{' '}
+        {saved ? 'This game is saved. Anyone with the results page link can see its results.' : props.saveFailed ? 'This game could not be saved yet. Try again to keep it; a new game opens once it is saved.' : 'Saving this game…'}{' '}
         {!props.signedIn ? 'Sign in with Google to see saved games on your profile.' : ''}
       </p>
       <SummaryTiles summary={props.summary} />

@@ -56,6 +56,13 @@ other template pieces needs the user's explicit OK.
   {path, guard, element}`; `src/routes/registry.ts` globs them. Guards: `public | auth |
   backend | auth+backend`. Add a screen by adding a page file; don't edit `App.tsx`. Only
   top-level `pages/*.tsx` is globbed.
+- **A finished game's one results URL is `/results/:publicId`** (`pages/ResultsPage.tsx`,
+  guard `public`; links built with `routes/resultsPath.ts`). It loads the server's stored copy
+  (`rest.getGameResults` → `GET /games/id/{publicId}/results`, open, no expiry) and needs no
+  sign-in, live game, socket or browser storage; a 404 reads "No finished game at this link."
+  It renders `components/report/StoredGameResults` (the end screen's `SummaryTiles` +
+  `GameCharts`), as the owner's `/profile/games/:gameId` (`ProfileGamePage`, by public id,
+  `auth+backend`) does; that page links to the results page too. The reply names no player.
 - **The game loop is one route** (`/play`, `PlayPage`), switching on `useGameStore().view`
   (`plan | day | report | over`). `viewForState` maps server phases (`planning | played |
   finished`) to views; a refresh mid-day opens that day's report (the server keeps no
@@ -125,7 +132,9 @@ other template pieces needs the user's explicit OK.
 - **Saving a finished game.** `GameOver` offers "Play again" only once the game is saved
   (`publicId`); after `game_persist_failed` (store `persistFailed`) it offers "Try saving
   again" (`retryPersist` → `retry_persist`). The server also refuses a new game while the
-  last finished one is unsaved (`UNSAVED_GAME`, toasted).
+  last finished one is unsaved (`UNSAVED_GAME`, toasted). Once saved it links "Results page"
+  (`/results/:publicId`) for guests and signed-in players alike; "Saved to your profile"
+  goes to `/profile`, so the end screen links no other results URL.
 - **Backend wake-up.** `BackendStatusContext` polls `src/api/health.ts` (requires body
   `{status:"ok"}` so an HTML 200 doesn't count) and `BackendWakeUp` covers Render cold
   starts.
@@ -163,6 +172,7 @@ until it is reloaded.
 | Limits fixture | `src/__tests__/fixtures/limits.json` (byte-identical) | `tests/fixtures/limits.json` |
 | Cost per cup (shown, never computed) | `PlanDay`, `DayReport`, the help | `core/engine.py` `cup_cost` |
 | REST shapes (incl. `POST /config/preview`) | `src/api/rest.ts` | `app/schemas/user.py`, `app/api/v1/*` |
+| Open results (`GET /games/id/{public_id}/results`: the stored summary without `config`/`started_at`, 404 when unknown) | `src/api/rest.ts` `getGameResults`, `pages/ResultsPage.tsx`, `components/report/GameOver.tsx` | `app/api/v1/games.py`, `db_service.public_results` |
 | Timestamps (`created_at`, a stored game's `started_at` / `finished_at`): ISO-8601 UTC ending in `Z`, parsed with `new Date(value)` as is (never append a zone) | `pages/ProfilePage.tsx`, `pages/ProfileGamePage.tsx`, `src/api/rest.ts` | `app/schemas/types.py` (`utc_z`), `app/services/db_service.py` |
 | Engine output (`GameState`, `DayRecord`, summary) | `src/types/game.ts` (hand-written, no codegen) | `app/core/engine.py` |
 | Vocabulary constants (incl. refusal reasons) | `src/types/game.ts`, `src/utils/format.ts` `REASON_TEXT` | `core/defaults.py`, `core/demand.py` |
@@ -202,15 +212,15 @@ explicit before/after proposal instead of rewriting it.
   `options.plugins.referenceRule`, never as a dataset. Every chart has a single y-axis, an
   x-axis title and a table view (accessibility). End-screen charts are in `charts/endgame/`
   (builders in `config.ts`); the plan's what-if chart is `plan/WhatIfChart.tsx`.
-- End screen (`GameCharts`, also on `ProfileGamePage`): the cash waterfall runs each bar from
+- End screen (`GameCharts`, also on `ProfileGamePage` and `ResultsPage` through `StoredGameResults`): the cash waterfall runs each bar from
   the server's `cash_start` to its `cash_end`, never a running sum; spoilage is one panel per
   ingredient in its own units, never summed across ingredients, with
   `total_perished_value` in the caption; traffic by hour stacks Bought / Did not buy, then a
   day-by-hour success-rate grid as an HTML table; the weather strip stands in for a
   temperature chart, and every day-axis chart shares one crosshair group. Clicking a bubble
   on the price-vs-success chart calls `openDayReport(day)`, which opens that day's report
-  with `events: []`, so `DayReport` hides "Replay day"; `ProfileGamePage` passes no handler,
-  so its bubbles are not clickable. Day report: "Why people said no" as bars ranked by
+  with `events: []`, so `DayReport` hides "Replay day"; `StoredGameResults` passes no
+  handler, so the bubbles of a stored game are not clickable. Day report: "Why people said no" as bars ranked by
   count, "By customer type" as bars in `PERSON_SERIES` colours with the success rate.
 
 ## Gotchas
@@ -231,9 +241,10 @@ explicit before/after proposal instead of rewriting it.
   `detailed_stand.glb`.
 - **`DayView`'s rAF effect disables exhaustive-deps on purpose** (restarts only when the
   watched day changes).
-- **Test coverage** (19 files, 211 tests) is mostly pure logic (timeline, sceneModel,
+- **Test coverage** (22 files, 227 tests) is mostly pure logic (timeline, sceneModel,
   gameStore, openDayReport, planPreview), plus component and handler tests (`fields`,
-  `Select`, `PlanDay`, `playAgain`, `socketHandlers` (also the abuse-limit handling),
+  `Select`, `PlanDay`, `playAgain`, `resultsPage` (`/results/:publicId` signed out through
+  `App`, touching no storage; the end screen's link), `socketHandlers` (also the abuse-limit handling),
   `httpErrors`, `chartKit`, `endgameCharts`,
   `DayReport`, `WhatIfChart` (also the plan screen's server figures), `configLimits`: the
   help and config screen quote the served limits and show only the server's figures, from

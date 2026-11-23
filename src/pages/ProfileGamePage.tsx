@@ -2,14 +2,15 @@ import { useEffect, useState, type ReactElement } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import Layout from '../components/shared/Layout'
 import LoadingSpinner from '../components/shared/LoadingSpinner'
-import GameCharts from '../components/charts/GameCharts'
-import { SummaryTiles } from '../components/report/GameOver'
+import StoredGameResults from '../components/report/StoredGameResults'
 import { errorMessage } from '../api/http'
 import { getMyGame } from '../api/rest'
 import { useAuth } from '../auth/AuthContext'
 import type { GameSummary } from '../types/game'
 import type { RouteDescriptor } from '../routes/registry'
+import { resultsPath } from '../routes/resultsPath'
 
+/** The owner's view of one saved game, by its public id; `/results/:publicId` is the open one. */
 function ProfileGamePage(): ReactElement {
   const { gameId = '' } = useParams()
   const { mode } = useAuth()
@@ -25,21 +26,20 @@ function ProfileGamePage(): ReactElement {
 
   return (
     <Layout wide>
-      <Link to="/profile" className="text-sm text-ink-muted underline">
-        ← Back to profile
-      </Link>
+      <div className="flex flex-wrap items-center gap-3 text-sm">
+        <Link to="/profile" className="text-ink-muted underline">
+          ← Back to profile
+        </Link>
+        {game ? (
+          <Link to={resultsPath(gameId)} className="ml-auto rounded-xl border border-border px-4 py-2">
+            Results page (anyone with the link)
+          </Link>
+        ) : null}
+      </div>
       {mode !== 'authenticated' ? <p className="mt-4">Sign in to see saved games.</p> : null}
       {error ? <p className="mt-4 text-bad">{error}</p> : null}
       {!game && !error && mode === 'authenticated' ? <LoadingSpinner size="lg" /> : null}
-      {game ? (
-        <div className="mt-3 space-y-5">
-          <h1 className="text-3xl font-extrabold">
-            {game.days_played}-day game · {game.finished_at ? new Date(game.finished_at).toLocaleDateString() : ''}
-          </h1>
-          <SummaryTiles summary={game} />
-          <GameCharts summary={game} />
-        </div>
-      ) : null}
+      {game ? <StoredGameResults game={game} /> : null}
     </Layout>
   )
 }
