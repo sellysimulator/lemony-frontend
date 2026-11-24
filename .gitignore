@@ -23,6 +23,14 @@ dist-ssr
 *.sln
 *.sw?
 .env
+.env.*
+!.env.example
 
 # Firebase CLI deploy cache
 .firebase/
+
+# Bundled agent skills (.claude/skills links into .agents)
+.agent/
+.agents/
+.claude/skills/
+skills-lock.json
