@@ -100,3 +100,37 @@ describe('logout', () => {
     expect(localStorage.getItem(GUEST_ID_KEY)).toBeNull()
   })
 })
+
+// Each path below reconnects only through `reconnectSocket`, which connects nothing without an
+// identity (`socketAuth.test.ts`): the server refuses a handshake that has none.
+describe('connecting with no identity', () => {
+  it('first load, the auth watchdog and logout go through reconnectSocket, with no identity left', async () => {
+    const first = renderHook(() => useAuth(), { wrapper })
+    act(() => h.authCb?.(null)) // first load: nobody signed in, no guest id
+    expect(first.result.current.mode).toBeNull()
+    expect(h.reconnects).toBe(1)
+    first.unmount()
+
+    vi.useFakeTimers()
+    try {
+      const late = renderHook(() => useAuth(), { wrapper })
+      act(() => vi.advanceTimersByTime(8_000)) // Firebase never answered: the watchdog
+      expect(late.result.current.mode).toBeNull()
+      expect(h.reconnects).toBe(2)
+      late.unmount()
+    } finally {
+      vi.useRealTimers()
+    }
+
+    const user = { displayName: 'Ana', email: null, photoURL: null }
+    h.authObject.currentUser = user
+    const signedIn = renderHook(() => useAuth(), { wrapper })
+    act(() => h.authCb?.(user))
+    const before = h.reconnects
+    await act(async () => {
+      await signedIn.result.current.logout()
+    })
+    expect(localStorage.getItem(GUEST_ID_KEY)).toBeNull()
+    expect(h.reconnects).toBe(before + 1)
+  })
+})

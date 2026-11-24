@@ -7,6 +7,8 @@ import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { useAlerts } from '../store/alerts'
+import { useGameStore } from '../store/gameStore'
+import type { GameState } from '../types/game'
 
 const h = vi.hoisted(() => ({
   auth: {
@@ -39,6 +41,8 @@ beforeEach(() => {
   h.auth.signInWithGoogle = vi.fn(async (): Promise<void> => undefined)
   h.auth.logout = vi.fn(async (): Promise<void> => undefined)
   useAlerts.setState({ alerts: [] })
+  useGameStore.getState().reset()
+  vi.restoreAllMocks()
 })
 
 describe('Layout header', () => {
@@ -78,5 +82,27 @@ describe('Layout header', () => {
     renderLayout()
     expect(screen.queryByRole('button', { name: 'Sign in' })).toBeNull()
     expect(screen.queryByRole('button', { name: 'Sign out' })).toBeNull()
+  })
+
+  it('a guest with a game in progress is asked first, since that game will not carry over', async () => {
+    useGameStore.setState({ state: { game_id: 'g1', phase: 'planning' } as GameState })
+    const ask = vi.spyOn(window, 'confirm').mockReturnValue(false)
+    renderLayout()
+    await userEvent.click(screen.getByRole('button', { name: 'Sign in' }))
+    expect(ask).toHaveBeenCalledWith(expect.stringMatching(/will not carry over/))
+    expect(h.auth.signInWithGoogle).not.toHaveBeenCalled()
+
+    ask.mockReturnValue(true)
+    await userEvent.click(screen.getByRole('button', { name: 'Sign in' }))
+    expect(h.auth.signInWithGoogle).toHaveBeenCalledTimes(1)
+  })
+
+  it('a guest whose game is finished signs in without being asked', async () => {
+    useGameStore.setState({ state: { game_id: 'g1', phase: 'finished' } as GameState })
+    const ask = vi.spyOn(window, 'confirm')
+    renderLayout()
+    await userEvent.click(screen.getByRole('button', { name: 'Sign in' }))
+    expect(ask).not.toHaveBeenCalled()
+    expect(h.auth.signInWithGoogle).toHaveBeenCalledTimes(1)
   })
 })

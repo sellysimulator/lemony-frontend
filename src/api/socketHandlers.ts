@@ -3,9 +3,10 @@
  * main.tsx, before React renders, so StrictMode double-mounts cannot double
  * register), plus the emit helpers the UI calls.
  */
-import { socket } from './socket'
+import { hasIdentity, isSignedIn, socket } from './socket'
 import { useGameStore } from '../store/gameStore'
 import { useAlerts } from '../store/alerts'
+import { useConnection } from '../store/connection'
 import { clearStoredGame, getStoredGame, storeGame } from '../utils/storage'
 import type {
   DayPlanPayload,
@@ -31,18 +32,27 @@ socket.on('connect', () => {
   resumeGame()
 })
 
+socket.on('disconnect', () => {
+  useConnection.setState({ connected: false })
+})
+
 // A handshake the server REFUSED is not retried by socket.io-client (`socket.active` turns
 // false); an unreachable server is, by the manager's own reconnect loop. The backend refuses
 // with "Too many connections from your network. …" past its per-address caps
-// (`handlers/connection.py`), and with "Connection rejected by server" when the ID token fails.
+// (`handlers/connection.py`), and with "Connection rejected by server" when the ID token fails
+// or no identity was sent (a signed-in user whose token could not be fetched sends none).
 const TOO_MANY_CONNECTIONS = /too many connections/i
 export const CAP_RETRY_BASE_MS = 2_000
 export const CAP_RETRY_MAX_MS = 30_000
 export const CAP_RETRY_ATTEMPTS = 6
+/** A signed-in user's refused handshake is tried again this long after, with a fresh token. */
+export const SIGNED_IN_RETRY_MS = 5_000
+const CANNOT_REACH = 'Could not reach the game server. Retrying…'
 
 let connectErrorShown: string | null = null
 let capRetries = 0
 let capRetryTimer: ReturnType<typeof setTimeout> | null = null
+let signedInRetryTimer: ReturnType<typeof setTimeout> | null = null
 
 function showConnectError(message: string): void {
   if (connectErrorShown === message) return
@@ -67,18 +77,33 @@ socket.on('connect_error', (err: Error) => {
     if (capRetryTimer) clearTimeout(capRetryTimer)
     capRetryTimer = setTimeout(() => {
       capRetryTimer = null
-      if (!socket.connected && !socket.active) socket.connect()
+      // Signed out meanwhile with no guest id: no identity, so no handshake (it is refused).
+      if (!socket.connected && !socket.active && hasIdentity()) socket.connect()
     }, capRetryDelay(capRetries++))
     return
   }
+  if (refused && isSignedIn()) {
+    // Signed in, yet refused: the token could not be fetched (no identity sent) or did not
+    // verify. Never fall back to the guest id; try again, with a fresh token, while signed in.
+    showConnectError(CANNOT_REACH)
+    if (signedInRetryTimer) clearTimeout(signedInRetryTimer)
+    signedInRetryTimer = setTimeout(() => {
+      signedInRetryTimer = null
+      if (!socket.connected && !socket.active && isSignedIn()) socket.connect()
+    }, SIGNED_IN_RETRY_MS)
+    return
+  }
   const authProblem = /unauthori|reject|forbidden/i.test(err.message)
-  showConnectError(authProblem ? 'Your sign-in was refused by the server. Try signing in again.' : 'Could not reach the game server. Retrying…')
+  showConnectError(authProblem ? 'Your sign-in was refused by the server. Try signing in again.' : CANNOT_REACH)
 })
 socket.on('connect', () => {
+  useConnection.setState({ connected: true, everConnected: true })
   connectErrorShown = null
   capRetries = 0
   if (capRetryTimer) clearTimeout(capRetryTimer)
   capRetryTimer = null
+  if (signedInRetryTimer) clearTimeout(signedInRetryTimer)
+  signedInRetryTimer = null
 })
 
 socket.on('game_created', (data: GameCreatedEvent) => {
@@ -145,8 +170,14 @@ const ERROR_TEXT: Record<string, string> = {
 socket.on('error', (data: ServerErrorEvent) => {
   const code = data?.code ?? 'SERVER_ERROR'
   const message = ERROR_TEXT[code] ?? data?.message ?? 'Something went wrong.'
+  if (code === 'NO_GAME') {
+    // The game this tab holds is gone (abandoned, or replaced from another tab or device):
+    // drop it entirely and ask for whatever this identity is playing now.
+    clearStoredGame()
+    useGameStore.getState().reset()
+  }
   useGameStore.getState().handleError(code, message)
-  if (code === 'NO_GAME') clearStoredGame()
+  if (code === 'NO_GAME') resumeGame()
   if (code !== 'ACTIVE_GAME_EXISTS') useAlerts.getState().push('error', message)
 })
 
@@ -179,7 +210,9 @@ export function createGame(config: GameConfig, replace = false): void {
 
 export function submitDay(plan: DayPlanPayload): void {
   const { gameId, state } = useGameStore.getState()
-  if (!gameId || !state) return
+  // A plan sent while disconnected is buffered and replayed before `resume_game`, and the
+  // server refuses it: the plan would be lost (PlanDay disables its button meanwhile too).
+  if (!gameId || !state || !socket.connected) return
   useGameStore.getState().setSubmitting(true)
   socket.emit('submit_day', { game_id: gameId, day: state.day, ...plan })
   expectReply('submit', REPLY_TIMEOUT_MS, () => useGameStore.getState().submitting, () => {

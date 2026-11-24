@@ -5,7 +5,10 @@
  *
  * Sequencing: every server event carries a per-game `seq`; an event not newer
  * than the last applied one is dropped (a stale emit after a resync).
- * `game_created` starts a new game and resets the counter.
+ * `game_created` starts a new game and resets the counter, and so does a state of
+ * another game than the one held (each game counts from its own start: the game
+ * this identity fell back to, after the held one was replaced elsewhere, would
+ * otherwise be dropped as stale).
  *
  * History: only full states carry `days`. Round events send a daily state, and
  * the store keeps the days it holds, appending each `day_result.record`.
@@ -133,9 +136,11 @@ function heldHistory(s: GameStoreState, gameId: string): Pick<GameState, 'days' 
 }
 
 export const useGameStore = create<GameStoreState & GameStoreActions>((set, get) => {
-  function applySequenced(seq: number, update: (s: GameStoreState) => Partial<GameStoreState>): void {
+  /** `gameId`: the game the event is about, when it says; another game than the one held starts the count afresh. */
+  function applySequenced(seq: number, update: (s: GameStoreState) => Partial<GameStoreState>, gameId?: string): void {
     const current = get()
-    if (typeof seq !== 'number' || !(seq > current.lastSeq)) return
+    const otherGame = gameId !== undefined && current.gameId !== null && gameId !== current.gameId
+    if (typeof seq !== 'number' || !(seq > (otherGame ? 0 : current.lastSeq))) return
     set({ ...update(current), lastSeq: seq })
   }
 
@@ -149,8 +154,9 @@ export const useGameStore = create<GameStoreState & GameStoreActions>((set, get)
       state,
       resume: 'active',
       publicId: state.public_id,
-      persistFailed: state.public_id ? false : s.persistFailed,
-      summary: state.summary ?? s.summary,
+      // Another game's save status and summary never carry over to this one.
+      persistFailed: state.public_id ? false : s.gameId === state.game_id && s.persistFailed,
+      summary: state.summary ?? (s.gameId === state.game_id ? s.summary : null),
       submitting: false,
       ...next,
     }
@@ -164,11 +170,11 @@ export const useGameStore = create<GameStoreState & GameStoreActions>((set, get)
     },
 
     handleGameState(seq, state) {
-      applySequenced(seq, (s) => withState(s, state))
+      applySequenced(seq, (s) => withState(s, state), state.game_id)
     },
 
     handleDailyState(seq, daily) {
-      applySequenced(seq, (s) => withState(s, { ...daily, ...heldHistory(s, daily.game_id) }))
+      applySequenced(seq, (s) => withState(s, { ...daily, ...heldHistory(s, daily.game_id) }), daily.game_id)
     },
 
     handleDayResult(data) {
@@ -182,7 +188,7 @@ export const useGameStore = create<GameStoreState & GameStoreActions>((set, get)
           return { state, submitting: false, ...(onIt ? {} : { view: 'report' as const, watch: { day: data.day, record: data.record, events: [] } }) }
         }
         return { state, submitting: false, view: 'day', watch: { day: data.day, record: data.record, events: data.events } }
-      })
+      }, data.state.game_id)
     },
 
     handleGameFinished(seq, summary) {

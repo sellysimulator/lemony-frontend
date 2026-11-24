@@ -2,6 +2,7 @@ import type { ReactElement, ReactNode } from 'react'
 import { Citrus } from 'lucide-react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useAuth } from '../../auth/AuthContext'
+import { confirmGuestSignIn } from '../../auth/confirmGuestSignIn'
 import { useAlerts } from '../../store/alerts'
 
 /**
@@ -18,7 +19,7 @@ export default function Layout(props: { children: ReactNode; wide?: boolean }): 
       <header className="sticky top-0 z-40 border-b border-border bg-surface/90 backdrop-blur">
         <div className={`mx-auto flex items-center gap-4 px-4 py-3 ${props.wide ? 'max-w-[88rem]' : 'max-w-5xl'}`}>
           <Link to="/home" className="flex items-center gap-2 text-xl font-extrabold tracking-tight">
-            <Citrus aria-hidden className="size-6 text-brand-strong" strokeWidth={2.5} /> Lemony
+            <Citrus aria-hidden className="size-6 text-brand-strong" strokeWidth={2.5} /> Lemonade Game
           </Link>
           <nav className="ml-auto flex items-center gap-3 text-sm">
             <Link to="/profile" className="rounded-md px-2 py-1 text-ink-muted hover:text-ink">
@@ -39,7 +40,10 @@ export default function Layout(props: { children: ReactNode; wide?: boolean }): 
             ) : googleAvailable ? (
               <button
                 type="button"
-                onClick={() => void signInWithGoogle().catch(() => push('error', 'Google sign-in did not complete. You can try again.'))}
+                onClick={() => {
+                  if (!confirmGuestSignIn(mode)) return
+                  void signInWithGoogle().catch(() => push('error', 'Google sign-in did not complete. You can try again.'))
+                }}
                 className="rounded-md border border-border px-2 py-1 text-ink-muted hover:border-brand-strong hover:text-ink"
               >
                 Sign in

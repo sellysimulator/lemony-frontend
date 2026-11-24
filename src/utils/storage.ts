@@ -23,8 +23,12 @@ function write(key: string, value: string | null): void {
   }
 }
 
+// With storage blocked, a guest's id lives in this tab's memory: every handshake must carry an
+// identity (the server refuses one without), and this keeps the same one across reconnects.
+let memoryGuestId: string | null = null
+
 export function getGuestId(): string | null {
-  return read(GUEST_ID_KEY)
+  return read(GUEST_ID_KEY) ?? memoryGuestId
 }
 
 export function getOrCreateGuestId(): string {
@@ -32,11 +36,13 @@ export function getOrCreateGuestId(): string {
   if (existing) return existing
   const id = `guest_${uuidv4()}`
   write(GUEST_ID_KEY, id)
+  memoryGuestId = id
   return id
 }
 
 export function clearGuestId(): void {
   write(GUEST_ID_KEY, null)
+  memoryGuestId = null
 }
 
 export function getStoredGame(): { gameId: string | null; sessionToken: string | null } {

@@ -2,7 +2,8 @@
 
 ## What this app is
 
-**Lemony** is a **single-player** lemonade-stand business sim. A player signs in with
+**Lemony** (shown to players as **Lemonade Game**: page title, header, welcome screen) is a
+**single-player** lemonade-stand business sim. A player signs in with
 Google (Firebase Auth) or continues as a guest, configures a game, then plays it day by
 day: **plan** (buy ingredient packs, set recipe and price) → **day** (watch customers visit
 the stand in a 2D or 3D board) → **report** → next day, until **game over** with charts.
@@ -69,14 +70,33 @@ other template pieces needs the user's explicit OK.
   customers to replay).
 - **Socket layer.** `src/api/socket.ts` (`autoConnect: false`; `auth` callback sends a
   fresh `{idToken, guestId}` on every connect) and `src/api/socketHandlers.ts` (all
-  listeners and emits). `AuthContext` connects only after Firebase restores the session.
-  On every `connect` the client emits `resume_game` from localStorage.
+  listeners and emits). `AuthContext` connects only after Firebase restores the session,
+  and `reconnectSocket` leaves a visitor with no identity (not signed in, no guest id)
+  unconnected: the server refuses a handshake without one. Signed in but `getIdToken()`
+  failed → `{idToken: null, guestId: null}`, never the guest id; the server refuses it and
+  `socketHandlers` retries every `SIGNED_IN_RETRY_MS` (5 s) while `isSignedIn()`. With
+  storage blocked the guest id lives in memory (`storage.ts`), so a guest still has one.
+  On every `connect` the client emits `resume_game` from localStorage. The reconnect loop
+  never gives up (no `reconnectionAttempts`, `reconnectionDelayMax` 10 s). `store/connection.ts`
+  holds the link (`connected`, `everConnected`); while a link that was up is down,
+  `PlayPage` shows `ReconnectingNotice` ("Connection lost. Reconnecting…"). Whenever the
+  socket is not connected `PlanDay`'s "Open the stand" is disabled and `submitDay` sends
+  nothing (an emit sent while disconnected is buffered and replayed before `resume_game`,
+  and the server would refuse it).
+- **Signing in as a guest mid-game.** The live game belongs to the guest identity and does
+  not carry over to the account (only finished games can be claimed, from the profile), so
+  `Layout` and `ProfilePage` ask first (`window.confirm`, `auth/confirmGuestSignIn.ts`) while
+  a guest holds an unfinished game.
 - **Backend abuse limits** (`../Lemony_Backend/app/core/abuse.py`). REST 429/413/503 get the
   client's own words in `errorMessage` (429 quotes `Retry-After` when the browser can read
   it). Socket `RATE_LIMITED` is toasted in the client's words. A handshake refused by the
   connection cap ("Too many connections…") is not retried by socket.io-client, so
-  `socketHandlers` retries it itself (backoff with jitter, `CAP_RETRY_*`, bounded); an auth
-  refusal ("Connection rejected by server") is not retried. Events past the server's rate
+  `socketHandlers` retries it itself (backoff with jitter, `CAP_RETRY_*`, bounded, and only
+  while `hasIdentity()`: no handshake without an identity); an auth refusal ("Connection
+  rejected by server") is retried every 5 s only while signed in. A 429 on
+  `POST /config/preview` is asked again after its `Retry-After` (`http.retryAfterMs`: the
+  header's seconds kept within 1–60 s, 5 s when missing or unreadable), so Start is never
+  left off for good. Events past the server's rate
   limits are dropped unanswered, so every awaited reply has a timeout: a `preview_plan` is
   sent once more after `PREVIEW_REPLY_TIMEOUT_MS`, then let go quietly (last reply kept);
   `submit_day`, `create_game` and `retry_persist` free their button after
@@ -85,7 +105,11 @@ other template pieces needs the user's explicit OK.
   handlers; UI writes presentational flags only. `playback` holds the day-playback clock.
   `alerts` is the toast queue.
 - **Sequencing.** Every server event carries a per-game `seq`; `applySequenced` drops
-  anything not newer than `lastSeq`. `game_created` resets it. The one exception is
+  anything not newer than `lastSeq`. `game_created` resets it, and a state or day result
+  about another game than the one held is taken whatever its seq (each game counts from
+  its own start; no save status or summary carries over). A `NO_GAME` `error` (the game
+  was replaced or abandoned elsewhere) resets the store and emits `resume_game`, which
+  falls back to whatever this identity plays now. The one exception is
   `plan_preview`, a request-scoped reply: its listener bypasses the gate and never touches
   `lastSeq`; the store keeps only the latest `request_id`'s reply, and a refusal rides
   inside it (`error`) instead of going through the `error` listener.
@@ -132,7 +156,8 @@ other template pieces needs the user's explicit OK.
 - **Saving a finished game.** `GameOver` offers "Play again" only once the game is saved
   (`publicId`); after `game_persist_failed` (store `persistFailed`) it offers "Try saving
   again" (`retryPersist` → `retry_persist`). The server also refuses a new game while the
-  last finished one is unsaved (`UNSAVED_GAME`, toasted). Once saved it links "Results page"
+  last finished one is unsaved (`UNSAVED_GAME`, toasted). The server also retries a failed
+  save in the background (2, 10, 30 s) and sends `game_persisted` / `game_persist_failed`. Once saved it links "Results page"
   (`/results/:publicId`) for guests and signed-in players alike; "Saved to your profile"
   goes to `/profile`, so the end screen links no other results URL.
 - **Backend wake-up.** `BackendStatusContext` polls `src/api/health.ts` (requires body
@@ -191,7 +216,9 @@ explicit before/after proposal instead of rewriting it.
 - Errors from REST: `errorMessage(err, fallback)` in `src/api/http.ts` (handles FastAPI's
   422 array `detail`, and words 429/413/503 itself); never add per-call status handling. User-visible problems go through `useAlerts().push`.
 - **All browser-storage keys live in `src/utils/storage.ts`**, every access wrapped in
-  try/catch (`guest_id`, `lemony_game_id`, `lemony_session_token`, `board_view`).
+  try/catch (`guest_id`, `lemony_game_id`, `lemony_session_token`, `board_view`). The one
+  exception is `main.tsx`'s `sessionStorage` `vite_preload_reloaded` (the same key in every
+  Novus game), set before React and the store exist.
 - Styling: Tailwind v4 with tokens in `@theme` in `src/index.css` (`surface*`, `ink*`,
   `brand*`, `border`, `leaf`, `good`, `bad`, `warn`; Nunito). No tailwind config file, light
   theme only, reduced motion honoured. Use token classes, not raw colours. Flat fills only,
@@ -241,7 +268,7 @@ explicit before/after proposal instead of rewriting it.
   `detailed_stand.glb`.
 - **`DayView`'s rAF effect disables exhaustive-deps on purpose** (restarts only when the
   watched day changes).
-- **Test coverage** (22 files, 227 tests) is mostly pure logic (timeline, sceneModel,
+- **Test coverage** (25 files, 245 tests) is mostly pure logic (timeline, sceneModel,
   gameStore, openDayReport, planPreview), plus component and handler tests (`fields`,
   `Select`, `PlanDay`, `playAgain`, `resultsPage` (`/results/:publicId` signed out through
   `App`, touching no storage; the end screen's link), `socketHandlers` (also the abuse-limit handling),
@@ -250,9 +277,16 @@ explicit before/after proposal instead of rewriting it.
   help and config screen quote the served limits and show only the server's figures, from
   the recorded `config_preview.json`, including the customers-a-day figure and its refusal) and source scans (`noGradient` fails on any CSS
   gradient, `noClientFormulas` on any removed formula copy, `firebaseFile` pins the
-  `firebase.ts` exports). Most components and `api/` are untested.
+  `firebase.ts` exports, `hostingFiles` the page title/description and `firebase.json`
+  headers), plus `socketAuth` (the handshake identity), `reconnectingNotice` and `Layout`
+  (the guest mid-game sign-in question). Most components and `api/` are untested.
 
 ## Deploy
+
+**Deploy order for the handoff-hardening release: backend before frontend.** The new
+frontend sends `{idToken: null, guestId: null}` when a signed-in user's token can't be
+fetched and relies on the new backend refusing it (the old one minted a guest); the new
+backend still accepts the old frontend's signed-in and guest handshakes.
 
 Firebase project `lemony-89f41` (site expected at `lemonysim.web.app`, per the backend's
 CORS). `.github/workflows/firebase-hosting-merge.yml` builds and deploys `dist` on push to
@@ -265,7 +299,13 @@ origin. Preview-channel origins are not in the backend's `CORS_ORIGINS`, so prev
 render but can't reach the backend.
 
 `firebase.json` serves site `lemonysim` with a `**` → `/index.html` SPA rewrite (deep
-links and `health.ts`'s HTML-200 check rely on it) and caches `/3dmodels/**` for a year as
-`immutable`. Model URLs carry no content hash, so **never replace a GLB in place — give the
+links and `health.ts`'s HTML-200 check rely on it), caches `/3dmodels/**` and the hashed
+`/assets/**` for a year as `immutable`, sends `no-cache` for `/index.html` and every
+extension-less route, and `nosniff` plus `Referrer-Policy: strict-origin-when-cross-origin`
+everywhere (no `X-Frame-Options` or CSP: they could break Firebase Auth's handler on this
+site). A tab left open across a deploy that asks for a chunk that is gone reloads once
+(`vite:preloadError` in `main.tsx`, guarded by `sessionStorage` `vite_preload_reloaded`).
+The Google sign-in screen's app name comes from the OAuth consent screen in the Google
+Cloud / Firebase console, not from this repo. Model URLs carry no content hash, so **never replace a GLB in place — give the
 changed model a new filename** and update `MODEL_URL` in `board3d/models.ts`, or returning
 players keep the old one.

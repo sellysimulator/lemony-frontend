@@ -21,6 +21,19 @@ describe('gameStore', () => {
     expect(useGameStore.getState().state?.day).toBe(2)
   })
 
+  it("another game's state is taken whatever its seq: each game counts from its own start", () => {
+    const s = useGameStore.getState()
+    s.handleGameCreated(1, 'g1')
+    s.handleGameState(40, state({ day: 5 }))
+    useGameStore.setState({ persistFailed: true })
+    // The held game was replaced elsewhere; this identity's game now is g2, at seq 3.
+    s.handleGameState(3, state({ game_id: 'g2', day: 1 }))
+    expect(useGameStore.getState()).toMatchObject({ gameId: 'g2', lastSeq: 3, persistFailed: false, state: { day: 1 } })
+    // Within g2, stale events are dropped again.
+    s.handleGameState(2, state({ game_id: 'g2', day: 9 }))
+    expect(useGameStore.getState().state?.day).toBe(1)
+  })
+
   it("a refresh mid-day opens that day's report (no customers are kept); a finished game opens results", () => {
     expect(viewForState(state({ phase: 'played', days: [record] }))).toEqual({ view: 'report', watch: { day: 1, record, events: [] } })
     // An older server still sends the list on a resync: it is not replayed either.

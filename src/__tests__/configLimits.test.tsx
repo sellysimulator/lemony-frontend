@@ -288,6 +288,36 @@ describe('the config screen reads its bounds and figures from the server', () =>
     expect(screen.getByRole('button', { name: /Start 7-day game/ })).toBeDisabled()
   })
 
+  it('asks again after a rate-limited preview, so Start is not left off', async () => {
+    vi.useFakeTimers()
+    rest.getConfigDefaults.mockResolvedValue({ config: recordedConfig(), limits: defaultLimits() })
+    rest.getConfigPreview
+      .mockRejectedValueOnce({ response: { status: 429, headers: { 'retry-after': '60' }, data: { detail: 'Too many requests.' } } })
+      .mockResolvedValue(recordedPreview())
+    renderScreen()
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0)
+    })
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(400)
+    })
+    expect(screen.getByText(/Please wait about 60 seconds/)).toBeInTheDocument()
+    const start = () => screen.getByRole('button', { name: /Start 7-day game/ })
+    expect(start()).toBeDisabled()
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(59_999)
+    })
+    expect(rest.getConfigPreview).toHaveBeenCalledTimes(1) // waits the whole Retry-After
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1)
+    })
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(400) // then the usual debounce
+    })
+    expect(rest.getConfigPreview).toHaveBeenCalledTimes(2)
+    expect(start()).toBeEnabled()
+  })
+
   it("shows the server's reason a config is invalid and keeps the start button off", async () => {
     vi.useFakeTimers()
     rest.getConfigDefaults.mockResolvedValue({ config: recordedConfig(), limits: defaultLimits() })

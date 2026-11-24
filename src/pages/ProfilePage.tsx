@@ -4,6 +4,7 @@ import Layout from '../components/shared/Layout'
 import Card, { Stat } from '../components/shared/Card'
 import LoadingSpinner from '../components/shared/LoadingSpinner'
 import { useAuth } from '../auth/AuthContext'
+import { confirmGuestSignIn } from '../auth/confirmGuestSignIn'
 import { errorMessage } from '../api/http'
 import { claimGuestGames, getMyGames, getMyStats, type GameListItem, type UserStats } from '../api/rest'
 import { useAlerts } from '../store/alerts'
@@ -14,7 +15,7 @@ import type { RouteDescriptor } from '../routes/registry'
 const PAGE_SIZE = 20
 
 function GuestProfile(): ReactElement {
-  const { googleAvailable, signInWithGoogle } = useAuth()
+  const { mode, googleAvailable, signInWithGoogle } = useAuth()
   return (
     <Card title="You're playing as a guest">
       <p className="text-ink-muted">
@@ -22,7 +23,9 @@ function GuestProfile(): ReactElement {
         guest games can be moved onto your account after signing in.
       </p>
       {googleAvailable ? (
-        <button type="button" onClick={() => void signInWithGoogle().catch(() => undefined)} className="mt-4 rounded-xl border border-border bg-white px-4 py-2 font-semibold">
+        <button type="button" onClick={() => {
+            if (confirmGuestSignIn(mode)) void signInWithGoogle().catch(() => undefined)
+          }} className="mt-4 rounded-xl border border-border bg-white px-4 py-2 font-semibold">
           Sign in with Google
         </button>
       ) : null}

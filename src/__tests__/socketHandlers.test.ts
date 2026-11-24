@@ -4,13 +4,18 @@ import type { DailyGameState, DayRecord, GameState } from '../types/game'
 const listeners = new Map<string, (data: unknown) => void>()
 const emit = vi.fn()
 const socketMock = vi.hoisted(() => ({ active: false, connected: false, connect: (() => {}) as () => void }))
+const signedIn = vi.hoisted(() => ({ value: false }))
+const identity = vi.hoisted(() => ({ value: true }))
 vi.mock('../api/socket', () => ({
   socket: Object.assign(socketMock, { on: (event: string, fn: (data: unknown) => void) => listeners.set(event, fn), emit }),
+  isSignedIn: () => signedIn.value,
+  hasIdentity: () => identity.value,
 }))
 
 const { useGameStore } = await import('../store/gameStore')
 const { useAlerts } = await import('../store/alerts')
-const { CAP_RETRY_ATTEMPTS, REPLY_TIMEOUT_MS, createGame, submitDay } = await import('../api/socketHandlers')
+const { useConnection } = await import('../store/connection')
+const { CAP_RETRY_ATTEMPTS, REPLY_TIMEOUT_MS, SIGNED_IN_RETRY_MS, createGame, submitDay } = await import('../api/socketHandlers')
 
 const record = { day: 1 } as DayRecord
 const full = { game_id: 'g1', day: 1, phase: 'planning', days: [], summary: null, public_id: null } as unknown as GameState
@@ -57,6 +62,16 @@ describe('round events on the socket', () => {
     expect(useGameStore.getState()).toMatchObject({ persistFailed: false, publicId: 'g1' })
     listeners.get('game_persist_failed')!({ seq: 3 }) // stale: dropped by seq
     expect(useGameStore.getState().persistFailed).toBe(false)
+  })
+
+  it('NO_GAME drops the held game entirely and asks for the one this identity plays now', () => {
+    listeners.get('game_state')!({ seq: 40, full: true, state: full })
+    listeners.get('error')!({ code: 'NO_GAME', message: 'That game does not exist or is not yours.' })
+    expect(useGameStore.getState()).toMatchObject({ state: null, gameId: null, lastSeq: 0, resume: 'unknown' })
+    expect(emit).toHaveBeenLastCalledWith('resume_game', { game_id: null, session_token: null })
+    // The fallback game's state is taken although its seq is far below the old game's.
+    listeners.get('game_state')!({ seq: 3, full: true, state: { ...full, game_id: 'g2' } })
+    expect(useGameStore.getState()).toMatchObject({ gameId: 'g2', resume: 'active' })
   })
 
   it('ask for the full state when no history of that game is held', () => {
@@ -124,6 +139,17 @@ describe('abuse limits on the socket', () => {
     expect(connect).toHaveBeenCalledTimes(CAP_RETRY_ATTEMPTS) // bounded
   })
 
+  it('a cap retry that comes due once no identity is left (signed out) does not connect', () => {
+    listeners.get('connect_error')!(new Error(CAP))
+    identity.value = false
+    try {
+      vi.advanceTimersByTime(60_000)
+      expect(connect).not.toHaveBeenCalled()
+    } finally {
+      identity.value = true
+    }
+  })
+
   it('a successful connect resets the retry count', () => {
     listeners.get('connect_error')!(new Error(CAP))
     vi.advanceTimersByTime(1000)
@@ -131,6 +157,33 @@ describe('abuse limits on the socket', () => {
     listeners.get('connect_error')!(new Error(CAP))
     vi.advanceTimersByTime(1000)
     expect(connect).toHaveBeenCalledTimes(2) // the first wait again, not the doubled one
+  })
+
+  it('a signed-in user refused at the handshake is told and retried after 5 s while signed in', () => {
+    signedIn.value = true
+    try {
+      listeners.get('connect_error')!(new Error(AUTH))
+      expect(alertTexts()).toEqual(['Could not reach the game server. Retrying…'])
+      vi.advanceTimersByTime(SIGNED_IN_RETRY_MS - 1)
+      expect(connect).not.toHaveBeenCalled()
+      vi.advanceTimersByTime(1)
+      expect(connect).toHaveBeenCalledTimes(1)
+
+      listeners.get('connect_error')!(new Error(AUTH))
+      signedIn.value = false // signed out meanwhile: no more retries
+      vi.advanceTimersByTime(SIGNED_IN_RETRY_MS)
+      expect(connect).toHaveBeenCalledTimes(1)
+    } finally {
+      signedIn.value = false
+    }
+  })
+
+  it('the link state drives the reconnecting notice: only a link that was up is reconnecting', () => {
+    useConnection.setState({ connected: false, everConnected: false })
+    listeners.get('connect')!(undefined)
+    expect(useConnection.getState()).toEqual({ connected: true, everConnected: true })
+    listeners.get('disconnect')!(undefined)
+    expect(useConnection.getState()).toEqual({ connected: false, everConnected: true })
   })
 
   it('an auth refusal is not retried as the cap', () => {
@@ -148,7 +201,16 @@ describe('abuse limits on the socket', () => {
     expect(connect).not.toHaveBeenCalled()
   })
 
+  it('a plan is not sent while the socket is not connected (it would be refused and lost)', () => {
+    listeners.get('game_state')!({ seq: 2, full: true, state: full })
+    emit.mockClear()
+    submitDay({ purchases: {}, price: 1, recipe: { ice: 1, sugar: 1, lemons: 1 } } as never)
+    expect(emit).not.toHaveBeenCalled()
+    expect(useGameStore.getState().submitting).toBe(false)
+  })
+
   it('an unanswered submit_day or create_game frees its button', () => {
+    socketMock.connected = true
     listeners.get('game_state')!({ seq: 2, full: true, state: full })
     submitDay({ purchases: {}, price: 1, recipe: { ice: 1, sugar: 1, lemons: 1 } } as never)
     createGame({} as never)
