@@ -284,6 +284,10 @@ describe('baseOptions', () => {
 })
 
 describe('registerCharts', () => {
+  it('gives every point a hit area of at least 24 px', () => {
+    expect(ChartJS.defaults.elements.point.hitRadius).toBe(12)
+  })
+
   it('is callable more than once and switches animation off for reduced motion', () => {
     stubReducedMotion(true)
     registerCharts()

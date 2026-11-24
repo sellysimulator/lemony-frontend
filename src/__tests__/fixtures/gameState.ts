@@ -3,7 +3,8 @@ import type { ConfigPreview, GameConfig, GameState, IngredientConfig, InventoryL
 
 /**
  * The limits exactly as the server serves them: `limits.json` is the backend's
- * `tests/fixtures/limits.json`, and the backend's tests fail if either copy drifts.
+ * `tests/fixtures/limits.json`, and the backend's tests fail if either copy drifts
+ * (only run where both repos sit side by side: its CI skips that check).
  */
 const LIMITS = Object.values(import.meta.glob<Limits>('./limits.json', { eager: true, import: 'default' }))[0]
 export const defaultLimits = (): Limits => structuredClone(LIMITS)

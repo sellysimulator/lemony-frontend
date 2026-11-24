@@ -172,7 +172,7 @@ npm ci
 npm run dev              # :5173, proxies /api + /socket.io to :8080
 npm run build            # tsc -b && vite build — this is the typecheck
 npm run lint
-npm run test:run         # vitest + jsdom, src/__tests__/
+npm test                 # vitest run + jsdom, src/__tests__/ (npm run test:watch to watch)
 ```
 
 Verify with build, lint and tests. Visual checks (screenshots, headless browsers) are the
@@ -230,7 +230,7 @@ explicit before/after proposal instead of rewriting it.
   `max(<gutter>, env(safe-area-inset-<edge>))` (`AlertContainer` is the one today). Rule and
   reasons in `../game_stack.md`.
 - Charts: the kit lives in `components/charts/`. `chartSetup.ts` has `registerCharts()`
-  (no animation under reduced motion), the palettes, `barStyle`/`lineStyle` and
+  (no animation under reduced motion, `hitRadius: 12` on every point), the palettes, `barStyle`/`lineStyle` and
   `baseOptions({xLabel, yLabel, …})` with the canvas legend off. `ChartBox` takes a title,
   `caption`, `ariaLabel`, `controls`, `legend` and a `table` (a node, or `{head, rows}` via
   `tableFromRows`), and has an error boundary. `Legend` is the DOM legend (swatches, optional

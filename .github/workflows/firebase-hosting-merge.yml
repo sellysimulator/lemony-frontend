@@ -17,7 +17,7 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run lint
-      - run: npm run test:run
+      - run: npm test
       # A deploy bundle must point at the Render backend: Hosting cannot proxy
       # the socket. The vite.config.ts guard fails the build if these are unset.
       - run: npm run build
