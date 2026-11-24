@@ -35,6 +35,8 @@ export function registerCharts(): void {
   ChartJS.defaults.color = '#44403c'
   // Legends are DOM (components/charts/Legend.tsx).
   ChartJS.defaults.plugins.legend.display = false
+  // A point's hit area is at least 24 px across, whatever its drawn radius.
+  ChartJS.defaults.elements.point.hitRadius = 12
   ChartJS.defaults.animation = prefersReducedMotion() ? false : defaultAnimation
 }
 

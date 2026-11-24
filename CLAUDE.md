@@ -172,7 +172,7 @@ npm ci
 npm run dev              # :5173, proxies /api + /socket.io to :8080
 npm run build            # tsc -b && vite build — this is the typecheck
 npm run lint
-npm run test:run         # vitest + jsdom, src/__tests__/
+npm test                 # vitest run + jsdom, src/__tests__/ (npm run test:watch to watch)
 ```
 
 Verify with build, lint and tests. Visual checks (screenshots, headless browsers) are the
@@ -230,7 +230,7 @@ explicit before/after proposal instead of rewriting it.
   `max(<gutter>, env(safe-area-inset-<edge>))` (`AlertContainer` is the one today). Rule and
   reasons in `../game_stack.md`.
 - Charts: the kit lives in `components/charts/`. `chartSetup.ts` has `registerCharts()`
-  (no animation under reduced motion), the palettes, `barStyle`/`lineStyle` and
+  (no animation under reduced motion, `hitRadius: 12` on every point), the palettes, `barStyle`/`lineStyle` and
   `baseOptions({xLabel, yLabel, …})` with the canvas legend off. `ChartBox` takes a title,
   `caption`, `ariaLabel`, `controls`, `legend` and a `table` (a node, or `{head, rows}` via
   `tableFromRows`), and has an error boundary. `Legend` is the DOM legend (swatches, optional
@@ -260,15 +260,17 @@ explicit before/after proposal instead of rewriting it.
 - **Firebase web config is committed** in `firebase.ts` (public identifiers, fine). There
   are no `VITE_FIREBASE_*` vars; `firebaseConfigured` is always true.
 - **3D board** (`components/board3d/`) is lazy-loaded as its own ~1 MB chunk and falls
-  back to 2D on WebGL failure. Skinned models (`child.glb`) must be cloned with
+  back to 2D on WebGL failure. Skinned models (`child-v2.glb`) must be cloned with
   `SkeletonUtils.clone`. Models have no animation clips (walking is a procedural bob).
-  `normalize()` rescales, grounds and strips baked floor meshes. GLBs are large and all
-  preloaded. Models are CC-BY — add any new one to `board3d/credits.ts` (shown on
-  `/credits`). `public/3dmodels/stand.glb` is unreferenced since the switch to
-  `detailed_stand.glb`.
+  `normalize()` rescales, grounds and strips baked floor meshes. All GLBs are preloaded
+  (2.6 MB in all): textures are WebP at 512 px and geometry is meshopt-compressed, with
+  positions, triangles, names and bounds exactly as in the originals (gltf-transform, run
+  once outside the repo). drei's `useGLTF` bundles the meshopt decoder; don't use Draco or
+  KTX2, whose decoders would come from a CDN. Models are CC-BY — add any new one to
+  `board3d/credits.ts` (shown on `/credits`; `modelFiles` checks both lists).
 - **`DayView`'s rAF effect disables exhaustive-deps on purpose** (restarts only when the
   watched day changes).
-- **Test coverage** (25 files, 245 tests) is mostly pure logic (timeline, sceneModel,
+- **Test coverage** (26 files, 251 tests) is mostly pure logic (timeline, sceneModel,
   gameStore, openDayReport, planPreview), plus component and handler tests (`fields`,
   `Select`, `PlanDay`, `playAgain`, `resultsPage` (`/results/:publicId` signed out through
   `App`, touching no storage; the end screen's link), `socketHandlers` (also the abuse-limit handling),
@@ -277,7 +279,7 @@ explicit before/after proposal instead of rewriting it.
   help and config screen quote the served limits and show only the server's figures, from
   the recorded `config_preview.json`, including the customers-a-day figure and its refusal) and source scans (`noGradient` fails on any CSS
   gradient, `noClientFormulas` on any removed formula copy, `firebaseFile` pins the
-  `firebase.ts` exports, `hostingFiles` the page title/description and `firebase.json`
+  `firebase.ts` exports, `modelFiles` that every model is shipped and credited, `hostingFiles` the page title/description and `firebase.json`
   headers), plus `socketAuth` (the handshake identity), `reconnectingNotice` and `Layout`
   (the guest mid-game sign-in question). Most components and `api/` are untested.
 
@@ -307,5 +309,5 @@ site). A tab left open across a deploy that asks for a chunk that is gone reload
 (`vite:preloadError` in `main.tsx`, guarded by `sessionStorage` `vite_preload_reloaded`).
 The Google sign-in screen's app name comes from the OAuth consent screen in the Google
 Cloud / Firebase console, not from this repo. Model URLs carry no content hash, so **never replace a GLB in place — give the
-changed model a new filename** and update `MODEL_URL` in `board3d/models.ts`, or returning
-players keep the old one.
+changed model a new filename** (the current ones end in `-v2`) and update `MODEL_URL` in
+`board3d/models.ts` and `credits.ts`, or returning players keep the old one.

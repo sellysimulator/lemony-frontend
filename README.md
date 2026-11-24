@@ -8,7 +8,7 @@ This is the React 19 + Vite + TypeScript client for Lemony (shown to players as 
 npm ci
 cp .env.example .env        # optional; Firebase web config is committed in firebase.ts
 npm run dev                 # http://localhost:5173 — proxies /api and /socket.io to the backend on :8080
-npm run build && npm run lint && npm run test:run
+npm run build && npm run lint && npm test
 ```
 
 ## How it fits together

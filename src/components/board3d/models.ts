@@ -5,19 +5,21 @@ import { clone as skeletonClone } from 'three/examples/jsm/utils/SkeletonUtils.j
 
 /**
  * The GLB assets (CC-BY-4.0, credited on /credits). None has animation clips,
- * so walking is a procedural bob. `child.glb` is skinned, so copies are made
+ * so walking is a procedural bob. `child-v2.glb` is skinned, so copies are made
  * with SkeletonUtils.clone — `Object3D.clone()` would share one skeleton.
+ * Compressed with WebP textures (512 px) and meshopt, whose decoder drei's
+ * `useGLTF` bundles; never Draco, whose decoder it fetches from a CDN.
  */
 export const MODEL_URL = {
-  stand: '/3dmodels/detailed_stand.glb',
-  lemonade: '/3dmodels/lemonade.glb',
-  Child: '/3dmodels/child.glb',
-  Teenager: '/3dmodels/teenager.glb',
-  Adult: '/3dmodels/adult.glb',
-  Senior: '/3dmodels/senior.glb',
-  tree: '/3dmodels/tree.glb',
-  grass: '/3dmodels/grass.glb',
-  cloud: '/3dmodels/cloud.glb',
+  stand: '/3dmodels/detailed_stand-v2.glb',
+  lemonade: '/3dmodels/lemonade-v2.glb',
+  Child: '/3dmodels/child-v2.glb',
+  Teenager: '/3dmodels/teenager-v2.glb',
+  Adult: '/3dmodels/adult-v2.glb',
+  Senior: '/3dmodels/senior-v2.glb',
+  tree: '/3dmodels/tree-v2.glb',
+  grass: '/3dmodels/grass-v2.glb',
+  cloud: '/3dmodels/cloud-v2.glb',
 } as const
 
 export type ModelKey = keyof typeof MODEL_URL
@@ -50,7 +52,7 @@ const PRECISE_BOUNDS: ReadonlySet<ModelKey> = new Set(['tree', 'grass', 'cloud']
 export function normalize(scene: THREE.Object3D, height: number, precise = false): THREE.Group {
   const inner = skeletonClone(scene)
   inner.updateMatrixWorld(true)
-  // Drop baked ground planes (adult.glb ships a 3 m black `floor` disc): a
+  // Drop baked ground planes (adult-v2.glb ships a 3 m black `floor` disc): a
   // mesh with no height would render as a shadow blot and wreck the bounds.
   const flat: THREE.Object3D[] = []
   inner.traverse((o) => {
