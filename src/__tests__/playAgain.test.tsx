@@ -13,7 +13,6 @@ vi.mock('../auth/AuthContext', () => ({ useAuth: () => ({ firebaseUser: null, mo
 vi.mock('../api/socketHandlers', () => ({ createGame: vi.fn(), retryPersist }))
 vi.mock('../api/rest', () => ({
   getConfigDefaults: vi.fn(async () => ({ config: defaultConfig(), limits: defaultLimits() })),
-  validateConfig: vi.fn(async () => ({ valid: true, message: null })),
 }))
 
 const played = (): GameConfig => ({ ...defaultConfig(), num_days: 12, starting_cash: 250 })

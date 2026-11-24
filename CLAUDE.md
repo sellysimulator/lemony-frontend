@@ -264,8 +264,7 @@ explicit before/after proposal instead of rewriting it.
   `SkeletonUtils.clone`. Models have no animation clips (walking is a procedural bob).
   `normalize()` rescales, grounds and strips baked floor meshes. GLBs are large and all
   preloaded. Models are CC-BY — add any new one to `board3d/credits.ts` (shown on
-  `/credits`). `public/3dmodels/stand.glb` is unreferenced since the switch to
-  `detailed_stand.glb`.
+  `/credits`).
 - **`DayView`'s rAF effect disables exhaustive-deps on purpose** (restarts only when the
   watched day changes).
 - **Test coverage** (25 files, 245 tests) is mostly pure logic (timeline, sceneModel,
